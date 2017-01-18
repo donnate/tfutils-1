@@ -11,37 +11,55 @@ class TFRecordsDataProvider(object):
 		 tfsource,
 		 sourcelist,
 		 batch_size,
+		 preprocess=None,
 		 postprocess=None,
 		 pad=False,
 		 decodelist=None,
+		 usetensor=False,
 		):
         """
         - tfrecsource (str): path where tfrecords file resides
         - sourcelist (list of strs): list of keys in the tfrecords file to use as source dataarrays
         - batch_size (int): size of batches to be returned
+        - preprocess (dict of callables): functions for preprocessing data in the datasources. Keys of this are subset of sourcelist. Attention: preprocessing on tensors that have to be read in first by yourself!
         - postprocess (dict of callables): functions for postprocess data.  Keys of this are subset of sourcelist.
         - pad (bool): whether to pad data returned if amount of data left to return is less then full batch size
 	- decodelist (list of strs): list of keys in the tfrecords file that have to be decoded from raw bytes format and reshaped to their original form, e. g. numpy arrays or serialized images
+	- usetensor (bool): whether to output the data as a tensorflow tensor or numpy array
         """
         self.tfsource = tfsource
-        self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
+        self.file = tf.python_io.tf_record_iterator(path=self.tfsource)
         self.sourcelist = sourcelist
+        self.subslice = subslice
+        self.subsliceinds = None
+        self.preprocess = {} if preprocess is None else preprocess
         self.postprocess = {} if postprocess is None else postprocess
 	self.pad = pad
         self.decodelist = [] if decodelist is None else decodelist
+	self.usetensor = usetensor
 
         for source in self.decodelist:
             assert source in self.sourcelist, 'decodelist has to be a subset of sourcelist'
-	for source in self.postprocess:
-	    assert source in self.sourcelist, 'postprocess has to be a subset of sourcelist'
 
 	self.data = {}
 	for source in self.sourcelist:
 	    self.data[source] = tf.FixedLenFeature([], tf.string)
+	    #TODO CHECK IF PREPROCESSING MAKES SENSE AT ALL HERE AND POSTPROCESSING SUFFICES
+	    if source in self.preprocess:
+		print('Preprocessing %s...' %s source)
+		self.data[source] = self.preprocess[source](self.data[source])
 	if self.decodelist is not None:
 	    self.data['height'] = tf.FixedLenFeature([], tf.int64)
 	    self.data['width'] = tf.FixedLenFeature([], tf.int64)
 	    self.data['channels'] = tf.FixedLenFeature([], tf.int64)
+
+	# setup tfrecords reader
+	if self.usetensor:
+	    self.reader = tf.TFRecordReader()
+	    self.filename_queue = tf.train.string_input_producer([self.tfsource])
+	    raise NotImplementedError('Check ToDos')
+	else:
+	    self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
 
 	self.curr_batch_num = 0
 	self.curr_epoch = 1
@@ -52,18 +70,27 @@ class TFRecordsDataProvider(object):
 	self.move_ptr_to(self.curr_batch_num)
 	
     def move_ptr_to(self, batch_num):
-	self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
-	for i in range(len(self.batch_size * batch_num)):
-	    try:
-		tfrec_ptr.next()
-	    except StopIteration:
-		raise IndexError('batch_num * batch_size > total records number: %d' % i)
+	if self.usetensor:
+	    self.reader = tf.TFRecordReader()
+	    for i in range(batch_num):
+		#TODO: Check for overflow
+		reader.read_up_to(self.filename_queue, self.batch_size)
+	else:
+	    self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
+	    for i in range(len(self.batch_size * batch_num)):
+		try:
+		    tfrec_ptr.next()
+		except StopIteration:
+		    raise IndexError('batch_num * batch_size > total records number: %d' % i)
 
     def __iter__(self):
 	return self
 
     def next(self):
-	return self.get_next_batch()
+	if self.usetensor:
+	    return self.get_next_batch_by_session()
+	else:
+	    return self.get_next_batch()
 
     def init_data(self):
 	data = {}
@@ -122,6 +149,22 @@ class TFRecordsDataProvider(object):
 		data[source] = np.array(data[source])
 	    if source in self.postprocess:
 		data[source] = self.postprocess[source](data[source])
+	return data
+
+    def get_next_batch_by_session(self):
+	data = {}
+	_, serialized_data = reader.read_up_to(self.filename_queue, self.batch_size)
+	features = tf.parse_example(serialized_data, self.data)
+	heights = tf.cast(features['height'], tf.int32)
+	widths = tf.cast(features['width'], tf.int32)
+	channels = tf.cast(features['channels'], tf.int32)
+	shape = tf.pack([self.batch_size, heights[0], widths[0], channels[0]]))
+	for source in self.sourcelist:
+	    if source in self.decodelist:
+		data[source] = tf.decode_raw(features[source], tf.uint8)
+	    	data[source] = tf.reshape(data[source], shape)
+	    else:
+		data[source] = features[source]
 	return data
 
 
