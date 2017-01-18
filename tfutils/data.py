@@ -93,10 +93,9 @@ class TFRecordsDataProvider(object):
             if source in self.decodelist:
                 serialized_data = (example.features.feature[source].bytes_list.value[0])
                 data_1D = np.fromstring(serialized_data, dtype=np.uint8)
-                data[source].append(data_1D.reshape( \
-                        (self.batch_size, height, width, channels))
+                data[source].append(data_1D.reshape(height, width, channels))
             else:
-                data[source] = (example.features.feature[source].bytes_list.value[0])
+                data[source].append(example.features.feature[source].bytes_list.value[0])
 
 	return data
 
@@ -121,7 +120,7 @@ class TFRecordsDataProvider(object):
             if source in self.decodelist:
 		data[source] = np.array(data[source])
 	    if source in self.postprocess:
-		data[source] = self.postprocess[source](data[source])
+		data[source] = self.postprocess[source](data[source], self.tfrec_ptr)
 	return data
 
 
