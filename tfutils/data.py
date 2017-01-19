@@ -3,9 +3,123 @@ from __future__ import absolute_import, division, print_function
 import threading
 import numpy as np
 import h5py
+import lmdb
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
 from multiprocessing import Lock
+
+class LMDBDataProvider(object):
+    def __init__(self,
+                 lmdbsource,
+                 sourcelist,
+                 batch_size,
+                 postprocess=None,
+                 pad=False,
+                 decodelist=None,
+                ):
+        """
+        - lmdbsource (str): path where lmdb file resides
+        - sourcelist (list of strs): list of keys in the tfrecords file to use as source dataarrays
+        - batch_size (int): size of batches to be returned
+        - postprocess (dict of callables): functions for postprocess data.  Keys of this are subset of sourcelist.
+        - pad (bool): whether to pad data returned if amount of data left to return is less then full batch size
+        - decodelist (list of strs): list of keys in the tfrecords file that have to be decoded from raw bytes format and reshaped to their original form, e. g. numpy arrays or serialized images
+        """
+	self.lmdbsource = lmdbsource
+	self.file = lmdb.open(self.lmdbsource, readonly=True)
+	self.lmdb_ptr = self.file.begin().cursor()
+	self.lmdb_ptr.iternext() # necessary to point at first element
+	self.data_length = self.file.begin().stat()['entries']
+	self.sourcelist = sourcelist
+	self.postprocess = {} if postprocess is None else postprocess
+        self.pad = pad
+        self.decodelist = [] if decodelist is None else decodelist
+
+        for source in self.decodelist:
+            assert source in self.sourcelist, 'decodelist has to be a subset of sourcelist'
+        for source in self.postprocess:
+            assert source in self.sourcelist, 'postprocess has to be a subset of sourcelist'
+
+	self.data = {}
+        for source in self.sourcelist:
+            self.data[source] = tf.FixedLenFeature([], tf.string)
+        if self.decodelist is not None:
+            self.data['height'] = tf.FixedLenFeature([], tf.int64)
+            self.data['width'] = tf.FixedLenFeature([], tf.int64)
+            self.data['channels'] = tf.FixedLenFeature([], tf.int64)
+
+	self.curr_datum = 0
+        self.curr_batch_num = 0
+        self.curr_epoch = 1
+
+    def set_epoch_batch(self, epoch, batch_num):
+        self.move_ptr_to(batch_num)
+        self.curr_epoch = epoch
+        self.curr_batch_num = batch_num
+	self.curr_datum = self.batch_size * batch_num
+
+    def move_ptr_to(self, batch_num):
+        self.lmdb_ptr = self.file.begin().cursor()
+	self.lmdb_ptr.iternext()
+        if self.batch_size * batch_num >= self.data_length:
+	    raise IndexError('batch_num * batch_size > total records number: %d' % self.data_length)
+	for i in range(self.batch_size * batch_num): 
+            self.lmdb_ptr.iternext()
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        return self.get_next_batch()
+
+    def init_data(self):
+        data = {}
+        for source in self.sourcelist:
+            data[source] = []
+        return data
+
+    def parse_and_append_datum(self, datum, data):
+        example = tf.train.Example()
+        example.ParseFromString(datum)
+        if self.decodelist is not None:
+            height = int(example.features.feature['height'].int64_list.value[0])
+            width = int(example.features.feature['width'].int64_list.value[0])
+            channels = int(example.features.feature['channels'].int64_list.value[0])
+        # parse and reshape data
+        for source in self.sourcelist:
+            if source in self.decodelist:
+                serialized_data = (example.features.feature[source].bytes_list.value[0])
+                data_1D = np.fromstring(serialized_data, dtype=np.uint8)
+                data[source].append(data_1D.reshape(height, width, channels))
+            else:
+                data[source].append(example.features.feature[source].bytes_list.value[0])
+
+        return data
+
+    def get_next_batch(self):
+        self.curr_batch_num += 1
+        data = self.init_data()
+        # read and parse data
+        for i in range(self.batch_size):
+            # lmdb pointer is looping through lmdb file automatically 
+	    if self.curr_datum >= self.data_length:
+		self.curr_datum = 0
+		self.curr_batch_num = 0
+		self.curr_epoch += 1
+		if not (i == 0 or self.pad):
+		    break
+            datum = self.lmdb_ptr.value()
+            data = self.parse_and_append_datum(datum, data)
+	    self.lmdb_ptr.iternext()
+	    self.curr_datum += 1
+        # convert to numpy arrays and postprocess
+        for source in self.sourcelist:
+            if source in self.decodelist:
+                data[source] = np.array(data[source])
+            if source in self.postprocess:
+                data[source] = self.postprocess[source](data[source], self.file)
+        return data
+	
 
 class TFRecordsDataProvider(object):
     def __init__(self,
@@ -49,15 +163,15 @@ class TFRecordsDataProvider(object):
 	self.curr_epoch = 1
 
     def set_epoch_batch(self, epoch, batch_num):
+	self.move_ptr_to(batch_num)
 	self.curr_epoch = epoch
 	self.curr_batch_num = batch_num
-	self.move_ptr_to(self.curr_batch_num)
 	
     def move_ptr_to(self, batch_num):
 	self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
 	for i in range(self.batch_size * batch_num):
 	    try:
-		tfrec_ptr.next()
+		self.tfrec_ptr.next()
 	    except StopIteration:
 		raise IndexError('batch_num * batch_size > total records number: %d' % i)
 
