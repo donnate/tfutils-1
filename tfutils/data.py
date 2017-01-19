@@ -5,6 +5,7 @@ import numpy as np
 import h5py
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
+from multiprocessing import Lock
 
 class TFRecordsDataProvider(object):
     def __init__(self,
@@ -29,6 +30,7 @@ class TFRecordsDataProvider(object):
         self.postprocess = {} if postprocess is None else postprocess
 	self.pad = pad
         self.decodelist = [] if decodelist is None else decodelist
+	self.lock = Lock()
 
         for source in self.decodelist:
             assert source in self.sourcelist, 'decodelist has to be a subset of sourcelist'
@@ -53,7 +55,7 @@ class TFRecordsDataProvider(object):
 	
     def move_ptr_to(self, batch_num):
 	self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
-	for i in range(len(self.batch_size * batch_num)):
+	for i in range(self.batch_size * batch_num):
 	    try:
 		tfrec_ptr.next()
 	    except StopIteration:
@@ -70,16 +72,6 @@ class TFRecordsDataProvider(object):
         for source in self.sourcelist:
             data[source] = []
 	return data
-
-    def get_next_datum(self):
-	try:
-            return self.tfrec_ptr.next()
-	# loop through data when at the end of the file
-        except StopIteration:
-            self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
-            self.curr_batch_num = 0
-            self.curr_epoch += 1
-            return None
 
     def parse_and_append_datum(self, datum, data):
 	example = tf.train.Example()
@@ -102,19 +94,22 @@ class TFRecordsDataProvider(object):
     def get_next_batch(self):
 	self.curr_batch_num += 1 
 	data = self.init_data()
-	# read and parse data 
+	# read and parse data
+	self.lock.acquire()
 	for i in range(self.batch_size):
-	    datum = self.get_next_datum()
-	    if datum is None:
-		if self.pad:
-		    # since we are looping over the file just try again
-		    datum = self.get_next_datum()
-		    if datum is None:
-			raise StopIteration
+	    try:
+	        datum = self.tfrec_ptr.next()
+	    # loop through data when at the end of the file
+	    except StopIteration:
+	        self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
+	        self.curr_batch_num = 0
+	        self.curr_epoch += 1
+		if i == 0 or self.pad:
+	            datum = self.tfrec_ptr.next()
 		else:
 		    break
-	    else:
-		data = self.parse_and_append_datum(datum, data)
+    	    data = self.parse_and_append_datum(datum, data)
+	self.lock.release()
 	# convert to numpy arrays and postprocess
 	for source in self.sourcelist:
             if source in self.decodelist:
