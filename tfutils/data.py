@@ -242,7 +242,9 @@ class HDF5DataProvider(object):
                  mini_batch_size=None,
                  preprocess=None,
                  postprocess=None,
-                 pad=False):
+                 pad=False,
+		 decodelist=None,
+):
 
         """
         - hdf5source (str): path where hdf5 file resides
@@ -259,6 +261,7 @@ class HDF5DataProvider(object):
         - preprocess (dict of callables): functions for preprocessing data in the datasources.  keys of this are subset
         - postprocess (dict of callables): functions for postprocess data.  Keys of this are subset of sourcelist.
         - pad (bool): whether to pad data returned if amount of data left to return is less then full batch size
+        - decodelist (list of strings): not used here, provided for consistent interface
         """
         self.hdf5source = hdf5source
         self.file = h5py.File(self.hdf5source, 'r')
