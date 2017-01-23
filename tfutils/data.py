@@ -58,6 +58,7 @@ class LMDBDataProvider(object):
 	self.curr_datum = self.batch_size * batch_num
 
     def move_ptr_to(self, batch_num):
+        self.file = lmdb.open(self.datasource, readonly=True)
         self.data_ptr = self.file.begin().cursor().iternext(keys=False, values=True)
         if self.batch_size * batch_num >= self.data_length:
 	    raise IndexError('batch_num * batch_size > total records number: %d' % self.data_length)
@@ -106,6 +107,7 @@ class LMDBDataProvider(object):
                 datum = self.data_ptr.next()
             # loop through data when at the end of the file
             except StopIteration:
+                self.file = lmdb.open(self.datasource, readonly=True)
                 self.data_ptr = self.file.begin().cursor().iternext(keys=False, values=True)
                 self.curr_datum = 0
                 self.curr_batch_num = 0
