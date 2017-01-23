@@ -25,10 +25,9 @@ class LMDBDataProvider(object):
         - pad (bool): whether to pad data returned if amount of data left to return is less then full batch size
         - decodelist (list of strs): list of keys in the tfrecords file that have to be decoded from raw bytes format and reshaped to their original form, e. g. numpy arrays or serialized images
         """
-	self.lmdbsource = lmdbsource
-	self.file = lmdb.open(self.lmdbsource, readonly=True)
-	self.lmdb_ptr = self.file.begin().cursor()
-	self.lmdb_ptr.iternext() # necessary to point at first element
+	self.datasource = lmdbsource
+	self.file = lmdb.open(self.datasource, readonly=True)
+	self.data_ptr = self.file.begin().cursor().iternext(keys=False, values=True)
 	self.data_length = self.file.begin().stat()['entries']
 	self.sourcelist = sourcelist
 	self.postprocess = {} if postprocess is None else postprocess
@@ -59,12 +58,14 @@ class LMDBDataProvider(object):
 	self.curr_datum = self.batch_size * batch_num
 
     def move_ptr_to(self, batch_num):
-        self.lmdb_ptr = self.file.begin().cursor()
-	self.lmdb_ptr.iternext()
+        self.data_ptr = self.file.begin().cursor().iternext(keys=False, values=True)
         if self.batch_size * batch_num >= self.data_length:
 	    raise IndexError('batch_num * batch_size > total records number: %d' % self.data_length)
-	for i in range(self.batch_size * batch_num): 
-            self.lmdb_ptr.iternext()
+	for i in range(self.batch_size * batch_num):
+	    try: 
+                self.data_ptr.next()
+	    except StopIteration:
+		raise IndexError('batch_num * batch_size > total records number: %d' % i)
 
     def __iter__(self):
         return self
@@ -101,16 +102,19 @@ class LMDBDataProvider(object):
         data = self.init_data()
         # read and parse data
         for i in range(self.batch_size):
-            # lmdb pointer is looping through lmdb file automatically 
-	    if self.curr_datum >= self.data_length:
-		self.curr_datum = 0
-		self.curr_batch_num = 0
-		self.curr_epoch += 1
-		if not (i == 0 or self.pad):
-		    break
-            datum = self.lmdb_ptr.value()
+            try:
+                datum = self.data_ptr.next()
+            # loop through data when at the end of the file
+            except StopIteration:
+                self.data_ptr = self.file.begin().cursor().iternext(keys=False, values=True)
+                self.curr_datum = 0
+                self.curr_batch_num = 0
+                self.curr_epoch += 1
+                if i == 0 or self.pad:
+                    datum = self.data_ptr.next()
+                else:
+                    break
             data = self.parse_and_append_datum(datum, data)
-	    self.lmdb_ptr.iternext()
 	    self.curr_datum += 1
         # convert to numpy arrays and postprocess
         for source in self.sourcelist:
@@ -131,15 +135,15 @@ class TFRecordsDataProvider(object):
 		 decodelist=None,
 		):
         """
-        - tfrecsource (str): path where tfrecords file resides
+        - tfsource (str): path where tfrecords file resides
         - sourcelist (list of strs): list of keys in the tfrecords file to use as source dataarrays
         - batch_size (int): size of batches to be returned
         - postprocess (dict of callables): functions for postprocess data.  Keys of this are subset of sourcelist.
         - pad (bool): whether to pad data returned if amount of data left to return is less then full batch size
 	- decodelist (list of strs): list of keys in the tfrecords file that have to be decoded from raw bytes format and reshaped to their original form, e. g. numpy arrays or serialized images
         """
-        self.tfsource = tfsource
-        self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
+        self.datasource = tfsource
+        self.data_ptr = tf.python_io.tf_record_iterator(path=self.datasource)
         self.sourcelist = sourcelist
         self.postprocess = {} if postprocess is None else postprocess
 	self.pad = pad
@@ -168,10 +172,10 @@ class TFRecordsDataProvider(object):
 	self.curr_batch_num = batch_num
 	
     def move_ptr_to(self, batch_num):
-	self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
+	self.data_ptr = tf.python_io.tf_record_iterator(path=self.datasource)
 	for i in range(self.batch_size * batch_num):
 	    try:
-		self.tfrec_ptr.next()
+		self.data_ptr.next()
 	    except StopIteration:
 		raise IndexError('batch_num * batch_size > total records number: %d' % i)
 
@@ -212,14 +216,14 @@ class TFRecordsDataProvider(object):
 	self.lock.acquire()
 	for i in range(self.batch_size):
 	    try:
-	        datum = self.tfrec_ptr.next()
+	        datum = self.data_ptr.next()
 	    # loop through data when at the end of the file
 	    except StopIteration:
-	        self.tfrec_ptr = tf.python_io.tf_record_iterator(path=self.tfsource)
+	        self.data_ptr = tf.python_io.tf_record_iterator(path=self.datasource)
 	        self.curr_batch_num = 0
 	        self.curr_epoch += 1
 		if i == 0 or self.pad:
-	            datum = self.tfrec_ptr.next()
+	            datum = self.data_ptr.next()
 		else:
 		    break
     	    data = self.parse_and_append_datum(datum, data)
@@ -229,7 +233,7 @@ class TFRecordsDataProvider(object):
             if source in self.decodelist:
 		data[source] = np.array(data[source])
 	    if source in self.postprocess:
-		data[source] = self.postprocess[source](data[source], self.tfrec_ptr)
+		data[source] = self.postprocess[source](data[source], self.data_ptr)
 	return data
 
 
