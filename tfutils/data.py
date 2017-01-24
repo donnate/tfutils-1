@@ -33,6 +33,7 @@ class LMDBDataProvider(object):
 	self.postprocess = {} if postprocess is None else postprocess
         self.pad = pad
         self.decodelist = [] if decodelist is None else decodelist
+        self.lock = Lock()
 
         for source in self.decodelist:
             assert source in self.sourcelist, 'decodelist has to be a subset of sourcelist'
@@ -58,6 +59,7 @@ class LMDBDataProvider(object):
 	self.curr_datum = self.batch_size * batch_num
 
     def move_ptr_to(self, batch_num):
+        self.lock.acquire()
         self.file = lmdb.open(self.datasource, readonly=True)
         self.data_ptr = self.file.begin().cursor().iternext(keys=False, values=True)
         if self.batch_size * batch_num >= self.data_length:
@@ -67,6 +69,7 @@ class LMDBDataProvider(object):
                 self.data_ptr.next()
 	    except StopIteration:
 		raise IndexError('batch_num * batch_size > total records number: %d' % i)
+        self.lock.release()
 
     def __iter__(self):
         return self
@@ -102,6 +105,7 @@ class LMDBDataProvider(object):
         self.curr_batch_num += 1
         data = self.init_data()
         # read and parse data
+        self.lock.acquire()
         for i in range(self.batch_size):
             try:
                 datum = self.data_ptr.next()
@@ -118,6 +122,7 @@ class LMDBDataProvider(object):
                     break
             data = self.parse_and_append_datum(datum, data)
 	    self.curr_datum += 1
+        self.lock.release()
         # convert to numpy arrays and postprocess
         for source in self.sourcelist:
             if source in self.decodelist:
@@ -174,13 +179,14 @@ class TFRecordsDataProvider(object):
 	self.curr_batch_num = batch_num
 	
     def move_ptr_to(self, batch_num):
+	self.lock.acquire()
 	self.data_ptr = tf.python_io.tf_record_iterator(path=self.datasource)
 	for i in range(self.batch_size * batch_num):
 	    try:
 		self.data_ptr.next()
 	    except StopIteration:
 		raise IndexError('batch_num * batch_size > total records number: %d' % i)
-
+	self.lock.release()
     def __iter__(self):
 	return self
 
