@@ -187,6 +187,7 @@ class TFRecordsDataProvider(object):
 	    except StopIteration:
 		raise IndexError('batch_num * batch_size > total records number: %d' % i)
 	self.lock.release()
+
     def __iter__(self):
 	return self
 
