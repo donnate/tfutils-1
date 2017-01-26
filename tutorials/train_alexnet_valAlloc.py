@@ -110,8 +110,12 @@ class ImageNetSame(data.HDF5DataProvider):
 
     def next(self):
         batch = super(ImageNetSame, self).next()
+        str_phase = '_train'
+        if not self.group=='train':
+            str_phase = '_val'
         feed_dict = {'images': np.squeeze(batch[self.images]),
-                     'labels': np.squeeze(batch[self.labels])}
+                     'labels': np.squeeze(batch[self.labels]),
+                     '_phase': str_phase}
         return feed_dict
 
 def loss_with_postitional_para(outputs, targets, *args, **loss_func_kwargs):
@@ -122,7 +126,62 @@ NUM_BATCHES_PER_EPOCH = ImageNetSame.N_TRAIN // BATCH_SIZE
 IMAGE_SIZE_CROP = 224
 NUM_CHANNELS = 3
 
-def alexnet(inputs, train=True, norm=True, **kwargs):
+class ConvNetForCase(model.ConvNet):
+    def __init__(self, seed=None, **kwargs):
+        super(NoramlNetfromConv, self).__init__(seed=seed, **kwargs)
+
+    @tf.contrib.framework.add_arg_scope
+    def fc_w_case(self,
+           out_shape,
+           _phase, # Currently only '_train', '_val'
+           init='xavier',
+           stddev=.01,
+           bias=1,
+           activation='relu',
+           dropout=.5,
+           in_layer=None):
+        if in_layer is None:
+            in_layer = self.output
+        resh = tf.reshape(in_layer,
+                          [in_layer.get_shape().as_list()[0], -1],
+                          name='reshape')
+        in_shape = resh.get_shape().as_list()[-1]
+
+        kernel = tf.get_variable(initializer=self.initializer(init, stddev=stddev),
+                                 shape=[in_shape, out_shape],
+                                 dtype=tf.float32,
+                                 name='weights')
+        biases = tf.get_variable(initializer=tf.constant_initializer(bias),
+                                 shape=[out_shape],
+                                 dtype=tf.float32,
+                                 name='bias')
+        fcm = tf.matmul(resh, kernel)
+        self.output = tf.nn.bias_add(fcm, biases, name='fc')
+        if activation is not None:
+            self.activation(kind=activation)
+
+        curr_output = self.output
+
+        if dropout is not None:
+            new_output = self.dropout(dropout=dropout)
+        else:
+            new_output = self.output
+
+        self.output = tf.case({tf.equal(tf.constant('_train'), _phase): new_output, tf.equal(tf.constant('_val'), _phase): curr_output}, default=new_output, exclusive=False)
+
+        self.params = {'input': in_layer.name,
+                       'type': 'fc',
+                       'num_filters': out_shape,
+                       'init': init,
+                       'bias': bias,
+                       'stddev': stddev,
+                       'activation': activation,
+                       'dropout': dropout,
+                       'seed': self.seed}
+        return self.output
+
+
+def alexnet(inputs, _phase, norm=True, **kwargs):
     m = model.ConvNet(**kwargs)
     dropout = .5 if train else None
 
@@ -151,10 +210,10 @@ def alexnet(inputs, train=True, norm=True, **kwargs):
             m.pool(3, 2)
 
         with tf.variable_scope('fc6'):
-            m.fc(4096, init='trunc_norm', dropout=dropout, bias=.1)
+            m.fc_w_case(4096, _phase, init='trunc_norm', dropout=dropout, bias=.1)
 
         with tf.variable_scope('fc7'):
-            m.fc(4096, init='trunc_norm', dropout=dropout, bias=.1)
+            m.fc_w_case(4096, _phase, init='trunc_norm', dropout=dropout, bias=.1)
 
         with tf.variable_scope('fc8'):
             m.fc(1000, init='trunc_norm', activation=None, dropout=None, bias=0)
@@ -162,7 +221,7 @@ def alexnet(inputs, train=True, norm=True, **kwargs):
     return m
 
 def alexnet_tfutils(inputs, **kwargs):
-    m = alexnet(inputs['images'], **kwargs)
+    m = alexnet(inputs['images'], inputs['_phase'], **kwargs)
     return m.output, m.params
 
 def main():

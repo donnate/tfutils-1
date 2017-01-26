@@ -228,12 +228,15 @@ class Queue(object):
         dtypes = []
         shapes = []
         for key, value in self._first_batch.items():
-            self.nodes[key] = tf.placeholder(value.dtype, shape=value.shape, name=key)
-            dtypes.append(value.dtype)
-            if data_batch_size > 1:
-                shapes.append(value.shape[1:])
+            if not isinstance(value, str):
+                self.nodes[key] = tf.placeholder(value.dtype, shape=value.shape, name=key)
+                dtypes.append(value.dtype)
+                if data_batch_size > 1:
+                    shapes.append(value.shape[1:])
+                else:
+                    shapes.append(value.shape)
             else:
-                shapes.append(value.shape)
+                self.nodes[key] = tf.placeholder(tf.string, name=key)
 
         if queue_type == 'random':
             self.queue = tf.RandomShuffleQueue(capacity=self.capacity,
