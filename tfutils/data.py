@@ -205,6 +205,9 @@ class Queue(object):
                  capacity=None,
                  seed=0):
         self.data_iter = iter(data)
+        self.data_iter_dict = {'_default':self.data_iter}
+        self.curr_data_iter = '_default'
+
         self.batch_size = batch_size
         self.n_threads = n_threads
         if capacity is None:
@@ -237,6 +240,8 @@ class Queue(object):
                     shapes.append(value.shape)
             else:
                 self.nodes[key] = tf.placeholder(tf.string, name=key)
+                dtypes.append(tf.string)
+                shapes.append([])
 
         if queue_type == 'random':
             self.queue = tf.RandomShuffleQueue(capacity=self.capacity,
@@ -268,6 +273,21 @@ class Queue(object):
         else:
             self.enqueue_op = self.queue.enqueue(self.nodes)
         self.batch = self.queue.dequeue_many(batch_size)
+
+    def set_data_iter(self, wanted_data_iter='_default'):
+        if wanted_data_iter not in self.data_iter_dict:
+            wanted_data_iter = '_default'
+
+        if not wanted_data_iter==self.curr_data_iter:
+            self.data_iter = self.data_iter_dict[wanted_data_iter]
+            self.curr_data_iter = wanted_data_iter
+            self._first_call = True
+            self._first_batch = self.data_iter.next()
+
+    def add_data_iter(self, data_iter_name, data):
+        assert data_iter_name not in self.data_iter_dict, "Repeat adding data_iter %s" % data_iter_name
+        if data_iter_name not in self.data_iter_dict:
+            self.data_iter_dict[data_iter_name] = iter(data)
 
     def __iter__(self):
         return self

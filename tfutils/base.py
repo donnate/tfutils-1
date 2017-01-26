@@ -554,7 +554,8 @@ def run_targets_dict(sess,
                      targets,
                      save_intermediate_freq=None,
                      dbinterface=None,
-                     validation_only=False):
+                     validation_only=False,
+                     queues=None):
     """
     Helper function for actually computing validation results.
     """
@@ -564,6 +565,10 @@ def run_targets_dict(sess,
         target = targets[target_name]['targets']
         agg_func = targets[target_name]['agg_func']
         online_agg_func = targets[target_name]['online_agg_func']
+
+        if '_q_indx' in targets[target_name] and queues is not None:
+            queues[targets[target_name]['_q_indx']].set_data_iter(target_name)
+
         results[target_name] = run_targets(sess,
                                            dbinterface,
                                            target_name,
@@ -573,6 +578,9 @@ def run_targets_dict(sess,
                                            agg_func,
                                            save_intermediate_freq,
                                            validation_only)
+
+        if '_q_indx' in targets[target_name] and queues is not None:
+            queues[targets[target_name]['_q_indx']].set_data_iter()
     if dbinterface is not None:
         dbinterface.save(valid_res=results, validation_only=validation_only)
     return results
@@ -730,7 +738,7 @@ def train(sess,
     if step == 0:
         dbinterface.start_time_step = time.time()
         validation_res = run_targets_dict(sess, validation_targets,
-                                          dbinterface=dbinterface)
+                                          dbinterface=dbinterface, queues=queues)
     while step < num_steps:
         old_step = step
         dbinterface.start_time_step = time.time()
@@ -743,7 +751,7 @@ def train(sess,
             raise HiLossError('Loss {:.2f} exceeded the threshold {:.2f}'.format(train_results['loss'], thres_loss))
 
         vtargs = validation_targets if step % dbinterface.save_valid_freq == 0 else {}
-        validation_res = run_targets_dict(sess, vtargs)
+        validation_res = run_targets_dict(sess, vtargs, queues=queues)
         dbinterface.save(train_res=train_results, valid_res=validation_res, validation_only=False)
 
     stop_queues(sess, queues)
@@ -921,6 +929,8 @@ def train_from_params(save_params,
 
         model_params, train_outputs = get_model(train_inputs, train=True, **model_params)
 
+        model_dict = {'_train':{'q_indx':0, 'm_outputs': train_outputs, 'm_inputs': train_inputs}}
+
         if loss_params is None:
             loss_params = {}
         loss_params, loss = get_loss(train_inputs, train_outputs, **loss_params)
@@ -948,12 +958,14 @@ def train_from_params(save_params,
         scope.reuse_variables()
         if validation_params is None:
             validation_params = {}
-        valid_targets_dict, vqueues = get_valid_targets_dict(validation_params,
+        valid_targets_dict, queues = get_valid_targets_dict(validation_params,
                                                              model_params,
                                                              train_params.get('queue_params'),
                                                              loss_params,
-                                                             cfg_final=model_params['cfg_final'])
-        queues.extend(vqueues)
+                                                             cfg_final=model_params['cfg_final'],
+                                                             queues=queues,
+                                                             model_dict=model_dict)
+        #queues.extend(vqueues)
 
         # create session
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
@@ -987,11 +999,16 @@ def get_valid_targets_dict(validation_params,
                            model_params,
                            default_queue_params,
                            default_loss_params,
-                           cfg_final=None):
+                           cfg_final=None,
+                           queues=None,
+                           model_dict=None):
     """Helper function for creating validation target operations.
        NB: this function may modify validation_params"""
     valid_targets_dict = OrderedDict()
-    queues = []
+
+    if queues is None:
+        queues = []
+
     model_params = copy.deepcopy(model_params)
     model_params.pop('train', None)  # hackety-hack
     if cfg_final is None:
@@ -999,17 +1016,38 @@ def get_valid_targets_dict(validation_params,
         cfg_final = model_params['cfg_final']
     assert 'seed' in model_params
     for vtarg in validation_params:
-        _, queue = get_data(queue_params=validation_params[vtarg].get('queue_params', default_queue_params),
-                            **validation_params[vtarg]['data_params'])
-        queues.append(queue)
-        vinputs = queue.batch
-        scope_name = 'validation/%s' % vtarg
-        with tf.name_scope(scope_name):
-            _mp, voutputs = get_model(vinputs, train=False, **model_params)
-            check_model_equivalence(_mp['cfg_final'], cfg_final, scope_name)
-            tf.get_variable_scope().reuse_variables()
-        validation_params[vtarg], valid_targets_dict[vtarg] = get_validation_target(vinputs, voutputs,
-                                                                                    **validation_params[vtarg])
+        validation_param = validation_params[vtarg]
+        if (model_dict is None) or ('model_name' not in validation_param) or (validation_param['model_name'] not in model_dict):
+            _, queue = get_data(queue_params=validation_param.get('queue_params', default_queue_params),
+                                **validation_param['data_params'])
+            queues.append(queue)
+            vinputs = queue.batch
+            scope_name = 'validation/%s' % vtarg
+            with tf.name_scope(scope_name):
+                _mp, voutputs = get_model(vinputs, train=False, **model_params)
+                check_model_equivalence(_mp['cfg_final'], cfg_final, scope_name)
+                tf.get_variable_scope().reuse_variables()
+            validation_params[vtarg], valid_targets_dict[vtarg] = get_validation_target(vinputs, voutputs,
+                                                                                        **validation_param)
+            if (model_dict is not None) and ('model_name' in validation_param) and (validation_param['model_name'] not in model_dict):
+                curr_model_name = validation_param['model_name']
+                model_dict[curr_model_name] = {}
+                model_dict[curr_model_name]['q_indx'] = len(queues) - 1
+                model_dict[curr_model_name]['m_outputs'] = voutputs
+                model_dict[curr_model_name]['m_inputs'] = vinputs
+                valid_targets_dict[vtarg]['_q_indx'] = len(queues) - 1
+        else:
+            curr_model_name = validation_param['model_name']
+            _, data_provider = get_data_wo_queue(queue_params=validation_param.get('queue_params', default_queue_params),
+                                **validation_param['data_params'])
+            queue_indx = model_dict[curr_model_name]['q_indx']
+            queues[queue_indx].add_data_iter(vtarg, data_provider)
+            vinputs = model_dict[curr_model_name]['m_inputs']
+            voutputs = model_dict[curr_model_name]['m_outputs']
+
+            validation_params[vtarg], valid_targets_dict[vtarg] = get_validation_target(vinputs, voutputs,
+                                                                                        **validation_param)
+            valid_targets_dict[vtarg]['_q_indx'] = queue_indx
 
     return valid_targets_dict, queues
 
@@ -1049,6 +1087,10 @@ def get_data(func, queue_params=None, **data_params):
     data_params['func'] = func
     return data_params, queue
 
+def get_data_wo_queue(func, queue_params=None, **data_params):
+    inputs = func(**data_params)
+    data_params['func'] = func
+    return data_params, inputs 
 
 def get_model(train_inputs, func, seed=0, train=False, **model_params):
     model_params['seed'] = seed
