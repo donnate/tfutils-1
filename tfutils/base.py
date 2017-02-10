@@ -42,6 +42,11 @@ TODO:
     - epoch and batch_num should be added to what is saved.   But how to do that with Queues?
 """
 
+if 'TFUTILS_HOME' in os.environ:
+    TFUTILS_HOME = os.environ['TFUTILS_HOME']
+else:
+    TFUTILS_HOME = os.path.join(os.environ['HOME'], '.tfutils')
+
 DEFAULT_LOSS_PARAMS = frozendict({'targets': ['labels'],
                                   'loss_per_case_func': tf.nn.sparse_softmax_cross_entropy_with_logits,
                                   'agg_func': tf.reduce_mean})
@@ -229,8 +234,7 @@ class DBInterface(object):
             cache_dir = None
 
         if cache_dir is None:
-            self.cache_dir = os.path.join(os.environ['HOME'],
-                                          '.tfutils',
+            self.cache_dir = os.path.join(TFUTILS_HOME,
                                           '%s:%d' % (self.host, self.port),
                                           self.dbname,
                                           self.collname,
@@ -393,7 +397,7 @@ class DBInterface(object):
         if len(train_res) > 0:
             # TODO: also include error rate of the train set to monitor overfitting
             message = 'Step {} ({:.0f} ms) -- '.format(step, 1000 * duration)
-            msg2 = ['{}: {:.4f}'.format(k, v) for k, v in train_res.items() if k != 'optimizer']
+            msg2 = ['{}: {:.4f}'.format(k, v) for k, v in train_res.items() if k != 'optimizer' and k not in self.save_to_gfs]
             message += ', '.join(msg2)
             log.info(message)
 
@@ -436,7 +440,9 @@ class DBInterface(object):
                     if 'train_results' not in save_to_gfs:
                         save_to_gfs['train_results'] = {}
                     if _k in train_res:
-                        save_to_gfs['train_results'][_k] = train_res.pop(_k)
+                        save_to_gfs['train_results'][_k] = [r.pop(_k) for r in rec['train_results'] if _k in r]
+                        if len(save_to_gfs['train_results'][_k]) == 1:
+                            save_to_gfs['train_results'][_k] == save_to_gfs['train_results'][_k][0]
                 if valid_res:
                     if 'validation_results' not in save_to_gfs:
                         save_to_gfs['validation_results'] = {}
@@ -445,6 +451,7 @@ class DBInterface(object):
                             save_to_gfs['validation_results'][_vk] = {}
                         if _k in valid_res[_vk]:
                             save_to_gfs['validation_results'][_vk][_k] = valid_res[_vk].pop(_k)
+
 
             save_rec = sonify(rec)
             make_mongo_safe(save_rec)
@@ -639,7 +646,8 @@ def test_from_params(load_params,
                      model_params,
                      validation_params,
                      log_device_placement=False,
-                     save_params=None):
+                     save_params=None,
+                     dont_run=False):
 
     """
     Main testing interface function.
@@ -681,6 +689,9 @@ def test_from_params(load_params,
                                   load_params=load_params,
                                   save_params=save_params)
         dbinterface.initialize()
+
+        if dont_run:
+            return sess, queues, dbinterface, valid_targets_dict
 
         save_intermediate_freq = save_params.get('save_intermediate_freq')
         res = test(sess,
@@ -763,7 +774,8 @@ def train_from_params(save_params,
                       optimizer_params=None,
                       validation_params=None,
                       log_device_placement=False,
-                      load_params=None
+                      load_params=None,
+                      dont_run=False
                       ):
     """
     Main training interface function.
@@ -976,6 +988,10 @@ def train_from_params(save_params,
         dbinterface = DBInterface(sess=sess, global_step=global_step, params=params,
                                   save_params=save_params, load_params=load_params)
         dbinterface.initialize()
+
+        if dont_run:
+            return sess, queues, dbinterface, train_targets, global_step, validation_targets
+
         res = train(sess,
                     queues,
                     dbinterface,
@@ -1050,13 +1066,13 @@ def get_validation_target(vinputs, voutputs,
 
 def get_data(func, queue_params=None, **data_params):
     data_provider = func(**data_params)
-    input_ops, dtypes, shapes = data_provider.init_threads()
-    assert len(input_ops) == data_params['n_threads'], (len(input_opts), data_params['n_threads'])
+    input_ops = data_provider.init_threads()
+    assert len(input_ops) == data_params['n_threads'], (len(input_ops), data_params['n_threads'])
     assert len(input_ops) > 0, len(input_ops)
     batch_size = data_params['batch_size']
     data_params['func'] = func
     enqueue_ops = []
-    queue = get_queue(input_ops[0], dtypes, shapes, **queue_params)
+    queue = get_queue(input_ops[0], **queue_params)
     for input_op in input_ops:
         if batch_size == 1:
             enqueue_ops.append(queue.enqueue(input_op))
@@ -1127,10 +1143,11 @@ def get_params():
     return args
 
 
+
 """
 Something like this could be used to create and save variables
 in a readable format.
-    def save_variables_to_readable_format()
+    def save_variables_to_readable_format():
         Vars = tf.all_variables()
         tmp = int(time.time())
         for v in Vars:

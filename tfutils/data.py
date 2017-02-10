@@ -1,130 +1,107 @@
 from __future__ import absolute_import, division, print_function
 
-import sys
-import threading
 import os
 import functools
+import copy
 
 import numpy as np
 import h5py
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
 
-class TFRecordsDataProviderBase(object):
+
+class ParallelByFileProviderBase(object):
     def __init__(self,
-                 tfsource,
-                 sourcedict,
+                 source_paths,
+                 meta_dict,
                  batch_size=256,
                  n_threads=4,
+                 postprocess=None
                 ):
         """
-        - tfsource (str): path where tfrecords file(s) reside
-        - sourcedict (dict of tf.dtypes): dict of datatypes where the keys are the keys in the tfrecords file to use as source dataarrays and the values are the tensorflow datatypes
+        - source (str): path where file(s) reside
+        - sourcedict (dict of tf.dtypes): dict of datatypes where the keys are 
+          the keys in the tfrecords file to use as source dataarrays and the values are the tensorflow datatypes
         - batch_size (int, default=256): size of batches to be returned
         - n_threads (int, default=4): number of threads to be used
         """
-	self.init(tfsource, sourcedict, batch_size, n_threads)
-
-    def init(self, tfsource, sourcedict, batch_size, num_threads):
-        self.num_threads = num_threads
-        self.sourcedict = sourcedict
+        
+        if not isinstance(source_paths, list):
+            assert isstring(source_paths)
+            source_paths = [source_paths]
+        self.source_paths = source_paths
+        self.num_attrs = len(self.source_paths)
+        self.meta_dict = meta_dict
         self.batch_size = batch_size
-        self.readers = []
+        self.num_threads = num_threads
+        self.postprocess = {} if postprocess is None else postprocess
+        for source in self.postprocess:
+            assert source in self.meta_dict.keys(), 'postprocess has to be a subset of meta_dict'
 
-        self.tfsource = tfsource
-        self.datasources = self.get_data_paths(tfsource)
-        self.filename_queue = tf.train.string_input_producer(self.datasources, \
-		shuffle=False) #TODO use number of epochs to control padding?
+        self.datasources = self.get_data_paths(source_paths)
+        assert len(self.datasources) == self.num_attrs
 
-        self.features = {}
-        for source in self.sourcedict:
-            self.features[source] = tf.FixedLenFeature([], self.sourcedict[source])
+        if self.num_attrs == 1:
+            fq = tf.train_string_input_producer(self.datasources[0],
+                                                shuffle=shuffle,
+                                                seed=shuffle_seed)
+            self.file_queues = [fq] * self.num_threads
+        else:
+            self.file_queues = []
+            tuples = zip(*self.datasources)
+            if shuffle:
+                rng = np.random.RandomState(seed=seed)
+                tuples = random_cycle(tuples, rng)
+            else:
+                tuples = itertools.cycle(tuples)
+            for n in range(self.num_threads):
+                coord = Coordinator(tuples)
+                for j in range(self.num_attrs):
+                    item = Item(coord, j)
+                    func = tf.py_func(item.next, [], [tf.string])
+                    fq = tr.train.string_input_producer(func)
+                    fqs.append(fq)
+                self.file_queues.append(fqs)
 
     def init_threads(self):
         self.input_ops = []
-        self.dtypes = {}
-        self.shapes = None #unconstrained shapes
+        for thread_num in range(self.num_threads):
+            op = {}
+            for attr_num in range(self.num_attrs):
+                fq = self.file_queues[thread_num][attr_num]
+                op.update(self.get_input_op(fq))
+            self.input_ops.append(op)
+        self.apply_postprocessing()            
+        return self.input_ops
 
-        for thread in range(self.num_threads):
-            reader = self.create_input_provider()
-            features = self.get_input_op(reader)
-            self.input_ops.append(features)
-            if len(self.dtypes.keys()) == 0:
-                for k in features:
-                    self.dtypes[k] = self.sourcedict[k]
-        return [self.input_ops, self.dtypes, self.shapes]
+    def get_data_paths(self, paths):
+        datasources = []
+        for path in paths:
+            if os.path.isdir(path):
+                tfrecord_pattern = os.path.join(path, '*.tfrecords')
+                datasource = tf.gfile.Glob(tfrecord_pattern)
+                datasource.sort()
+                datasources.append(datasource)
+            else:
+                datasources.append([path])
+        dl = map(len, datasources)
+        assert all([dl[0] == d for d in dl[1:]]), dl
+        return datasources
 
-    def get_data_paths(self, path):
-        if os.path.isdir(path):
-            tfrecord_pattern = os.path.join(path, '*.tfrecords')
-            datasources = tf.gfile.Glob(tfrecord_pattern)
-            return datasources.sort()
-        else:
-            return [path]
+    def get_input_op(self):
+        raise NotImplementedError()
 
-    def set_batch(self, batch_num):
-        self.move_ptr_to(batch_num)
-
-    def move_ptr_to(self, batch_num):
-        raise NotImplementedError #TODO
-
-    def parse_serialized_data(self, data):
-        return tf.parse_example(data, self.features)
-
-    def create_input_provider(self):
-        self.readers.append(tf.TFRecordReader())
-        return self.readers[-1]
-
-    def get_input_op(self, reader):
-        _, serialized_data = reader.read_up_to(self.filename_queue, self.batch_size)
-        return self.parse_serialized_data(serialized_data)
+    def apply_postprocessing(self):
+        ops = self.input_ops
+        for i in range(len(data)):
+            for source in self.postprocess:
+                op = ops[i][source]
+                for func, args, kwargs in self.postprocess[source]:
+                    op = func(op, *args, **kwargs)
+                ops[i][source] = op
 
 
-class TFRecordsDataProvider(TFRecordsDataProviderBase):
-    def __init__(self,
-                 tfsource,
-                 sourcedict,
-                 imagelist=None,
-                 batch_size=256,
-                 n_threads=4,
-                 postprocess=None,
-                 py_postprocess=None,
-                ):
-        """
-        - tfsource (str): path where tfrecords file(s) reside
-        - sourcedict (dict of tf.dtypes): dict of datatypes where the keys are the keys in the tfrecords file to use as source dataarrays and the values are the tensorflow datatypes
-        - imagelist (list of strs): list of image type keys in the tfrecords file that have to be decoded from raw bytes format and reshaped to their original form, e. g. numpy arrays or serialized images, imagelist is a subset of sourcedict
-        - batch_size (int, default=256): size of batches to be returned
-        - num_threads (int, default=4): number of threads to be used
-        - postprocess (dict of callables): functions for postprocess data using tf methods.  Keys of this are subset of sourcedict.
-        - py_postprocess (dict of (callable, tf return types) tuples): functions for postprocess data using python methods. Keys of this are subset of sourcedict.
-        """
-        return self.init_from_base(tfsource, sourcedict, imagelist, \
-                batch_size, n_threads, postprocess, py_postprocess)
-
-    def init_from_base(self, tfsource, sourcedict, imagelist, \
-            batch_size, num_threads, postprocess, py_postprocess):
-
-        self.imagelist = imagelist
-        self.postprocess = {} if postprocess is None else postprocess
-        self.py_postprocess = {} if py_postprocess is None else py_postprocess
-
-        for source in self.imagelist:
-            assert source in sourcedict.keys(), \
-                        'imagelist has to be a subset of sourcedict'
-        for source in self.postprocess:
-            assert source in sourcedict.keys(), \
-                        'postprocess has to be a subset of sourcedict'
-        for source in self.py_postprocess:
-            assert source in sourcedict.keys(), \
-                        'postprocess_py has to be a subset of sourcedict'
-
-        super(TFRecordsDataProvider, self).__init__(
-                tfsource,
-                sourcedict,
-                batch_size,
-                num_threads)
-
+"""
     def get_dtypes(self, sources):
         dtypes = {} 
         for source in sources:
@@ -160,28 +137,6 @@ class TFRecordsDataProvider(TFRecordsDataProviderBase):
         file_ptr.close()
         return [height, width, channels]
 
-    def init_threads(self):
-        self.input_ops, self.dtypes, self.shapes = \
-                super(TFRecordsDataProvider, self).init_threads()
-        if self.imagelist is not None:
-        # update data types, shapes and ops if image decoding was requested  
-            self.shapes = self.get_shapes(self.sourcedict, self.tfsource)
-            self.dtypes = self.get_dtypes(self.sourcedict)
-            self.input_ops = self.decode_data_many(self.input_ops)
-        if len(self.postprocess) > 0:
-            self.input_ops = self.postprocess_many(self.input_ops)
-        if len(self.py_postprocess) > 0:
-            self.input_ops = self.py_postprocess_many(self.input_ops)
-        return [self.input_ops, self.dtypes, self.shapes]
-
-    def postprocess_many(self, data):
-        for i in range(len(data)):
-            for source in self.postprocess:
-                data[i][source], self.dtypes[source], self.shapes[source] = \
-                        self.postprocess[source]( \
-                                data[i][source], self.dtypes[source], self.shapes[source])
-        return data
-
     def py_postprocess_many(self, data):
         raise NotImplementedError('Not yet tested!') #TODO
         for i in range(len(data)):
@@ -191,11 +146,6 @@ class TFRecordsDataProvider(TFRecordsDataProviderBase):
                 data[i][source] = tf.py_func(func, data[i][source], return_type)
         return data
 
-    def decode_data_many(self, data):
-        for i in range(len(data)):
-            data[i] = self.decode_features(data[i])
-        return data
-
     def decode_features(self, features):
         for k in features:
             if k in self.imagelist:
@@ -203,10 +153,109 @@ class TFRecordsDataProvider(TFRecordsDataProviderBase):
                 features[k] = tf.reshape(features[k], [self.batch_size] + self.shapes[k])
         return features
 
-    def set_batch(self, batch_num):
-        super(TFRecordsDataProvider, self).set_batch(batch_num)
+"""
 
+def parse_standard_tfmeta(paths):
+    #TODO: allow specification of metadata paths
+    d = {}
+    for path in paths:
+        mpath = os.path.join(path, 'meta.pkl')
+        if os.path.isfile(mpath):
+            d0 = cPickle.load(open(mpath))
+            assert set(d0.keys()).intersection(d.keys()) == set(), (d0.keys(), d.keys())
+            d.update(d0)
+    return d
+            
 
+class TFRecordsDataProvider(ParallelByFileProviderBase):
+    def __init__(self,
+                 source_paths,
+                 meta_dict=None,
+                 postprocess=None,
+                 batch_size=256,
+                 **kwargs):
+        """
+        """
+        parsed_meta_dict = parse_standard_tfmeta(source_paths)
+        if meta_dict is None:
+            meta_dict = parsed_meta_dict
+        else:
+            for k in meta_dict:
+                assert k in parsed_meta_dict
+                for kv in parsed_meta_dict[k]:
+                    if kv not in meta_dict[k]:
+                        meta_dict[k][kv] = parsed_meta_dict[k][kv]
+
+        if postprocess is None:
+            postprocess = {}
+        for k in meta_dict:
+            if k not in postprocess:
+                postprocess[k] = []
+            postprocess[k].insert(0, (tf.decode_raw, (meta_dict[k]['dtype'], ), {}))
+            postprocess[k].insert(1, (tf.reshape, ([batch_size] + meta_dict[k]['shape'], ), {}))
+
+        super(TFRecordsDataProvider, self).__init__(source_path,
+                                                    meta_dict,
+                                                    batch_size=batch_size,
+                                                    postprocess=postprocess,
+                                                    **kwargs)
+
+        self.parsers = {}
+        for source in self.meta_dict:
+            self.parsers[source] = tf.FixedLenFeature([], self.meta_dict[source])
+        
+    def get_input_op(self, fq):
+        reader = tf.TFRecordReader()
+        _, serialized_data = reader.read_up_to(fq, self.batch_size)
+        return tf.parse_example(serialized_data, self.parsers)
+            
+
+class ParallelBySliceProvider(object):
+    def __init__(self,
+                 basefunc,
+                 kwargs,
+                 mode='block',
+                 batch_size=256,
+                 n_threads=1):
+        self.func = basefunc
+        self.kwargs = kwargs
+        self.mode = mode
+        self.n_threads = n_threads
+        self.batch_size = batch_size
+
+    def init_threads(self):
+        n = self.n_threads
+        ops = []
+        tester = self.func(batch_size=self.batch_size, **self.kwargs)
+        N = tester.data_length
+        labels = tester.labels
+
+        if self.mode == 'block':
+            blocksize = N / n
+            ends = [[i * blocksize, (i+1) * blocksize] for i in range(n)]
+            ends[-1][1] = max(ends[-1][1], N)
+            subslices = [np.arange(e0, e1).astype(np.int) for e0, e1 in ends]
+        elif self.mode == 'alternate':
+            subslices = [np.arange(N)[i::].astype(np.int) for i in range(n)]
+
+        testbatch = tester.next()
+        for n in range(self.n_threads):
+            kwargs = copy.deepcopy(self.kwargs)
+            if 'subslice' not in self.kwargs:
+                kwargs['subslice'] = subslices[n]
+            else:
+                good_inds = tester.subsliceinds
+                kwargs['subslice'] = good_inds[subslices[n]]
+            kwargs['batch_size'] = self.batch_size
+            dp = self.func(**kwargs)
+            op = tf.py_func(dp.next, [], [t.dtype for t in testbatch])
+            for _op, t in zip(op, testbatch):
+                _op.set_shape(t.shape[1:])
+            op = dict(zip(labels, op))
+            ops.append(op)
+        return ops
+    
+        
 class HDF5DataProvider(object):
     def __init__(self,
                  hdf5source,
@@ -237,6 +286,7 @@ class HDF5DataProvider(object):
         self.hdf5source = hdf5source
         self.file = h5py.File(self.hdf5source, 'r')
         self.sourcelist = sourcelist
+
         self.subslice = subslice
         self.subsliceinds = None
         self.preprocess = {} if preprocess is None else preprocess
@@ -244,6 +294,7 @@ class HDF5DataProvider(object):
 
         self.data = {}
         self.sizes = {}
+        
         for source in self.sourcelist:
             self.data[source] = self.file[source]
             if source in self.preprocess:
@@ -260,13 +311,14 @@ class HDF5DataProvider(object):
                     elif hasattr(self.subslice, '__call__'):
                         self.subsliceinds = self.subslice(self.file, self.sourcelist)
                     elif len(self.subslice) == self.data[source].shape[0]:
-                        self.subsliceinds = self.subslice[:]
+                        self.subsliceinds = self.subslice[:].astype(np.int)
                     else:
                         self.subsliceinds = np.zeros(self.data[source].shape[0]).astype(np.bool)
                         self.subsliceinds[self.subslice] = True
                         self.subsliceinds = self.subsliceinds.nonzero()[0].astype(int)
                 sz = self.data[source].shape
                 self.sizes[source] = (self.subsliceinds.shape[0],) + sz[1:]
+
             if not hasattr(self, 'data_length'):
                 self.data_length = self.sizes[source][0]
             assert self.sizes[source][0] == self.data_length, (self.sizes[source], self.data_length)
@@ -280,6 +332,10 @@ class HDF5DataProvider(object):
         self.curr_epoch = 1
         self.pad = pad
 
+    @property
+    def labels(self):
+        return self.sourcelist
+
     def set_epoch_batch(self, epoch, batch_num):
         self.curr_epoch = epoch
         self.curr_batch_num = batch_num
@@ -291,9 +347,10 @@ class HDF5DataProvider(object):
 
     def __iter__(self):
         return self
-
+    
     def next(self):
-        return self.get_next_batch()
+        b = self.get_next_batch()
+        return [b[k] for k in self.sourcelist]
 
     def increment_batch_num(self):
         m = self.total_batches
@@ -391,8 +448,6 @@ def isin(X, Y):
 
 
 def get_queue(nodes,
-              dtypes_dict,
-              shapes_dict,
               queue_type='fifo',
               batch_size=256,
               capacity=None,
@@ -409,11 +464,8 @@ def get_queue(nodes,
 
     for name in nodes.keys():
         names.append(name)
-        dtypes.append(dtypes_dict[name])
-        if shapes_dict is not None:
-            shapes.append(shapes_dict[name])
-    if shapes_dict is None:
-        shapes = None
+        dtypes.append(nodes[name].dtype)
+        shapes.append(nodes[name].get_shape())
 
     if queue_type == 'random':
         queue = tf.RandomShuffleQueue(capacity=capacity,
@@ -451,8 +503,6 @@ class MNIST(object):
                  batch_size=100,
                  n_threads=1):
         """
-        A specific reader for IamgeNet stored as a HDF5 file
-
         Kwargs:
             - data_path: path to imagenet data
             - group: train, validation, test
@@ -485,10 +535,11 @@ class MNIST(object):
     def init_threads(self):
         func = functools.partial(self.data.next_batch, self.batch_size)
         batches = [tf.py_func(func, [], [tf.float32, tf.uint8]) for _ in range(self.n_threads)]
+        for b in batches:
+            b[0].set_shape([784])
+            b[1].set_shape([])
         ops = [{'images': b[0], 'labels': tf.cast(b[1], tf.int32)} for b in batches]
-        dtypes = {'images': tf.float32, 'labels': tf.int32}
-        shapes = {'images': [784], 'labels': []}
-        return ops, dtypes, shapes
+        return ops
 
 
 class ImageNet(HDF5DataProvider):
@@ -526,13 +577,13 @@ class ImageNet(HDF5DataProvider):
                 Extra arguments for HDF5DataProvider
         """
         self.group = group
-        images = group + '/images'
-        labels = group + '/labels'
+        images_key = group + '/images'
+        labels_key = group + '/labels'
         super(ImageNet, self).__init__(
             data_path,
-            [images, labels],
+            [images_key, labels_key],
             batch_size=batch_size,
-            postprocess={images: self.postproc_img, labels: self.postproc_labels},
+            postprocess={images_key: self.postproc_img, labels_key: self.postproc_labels},
             pad=True,
             *args, **kwargs)
         if crop_size is None:
@@ -541,8 +592,15 @@ class ImageNet(HDF5DataProvider):
             self.crop_size = crop_size
 
     def postproc_img(self, ims, f):
-        norm = ims.astype(np.float32) / 255
+        norm = ims.astype(np.float32) / 255.0
+
         off = np.random.randint(0, 256 - self.crop_size, size=2)
+
+        if self.group=='train':
+            off = np.random.randint(0, 256 - self.crop_size, size=2)
+        else:
+            off = int((256 - self.crop_size)/2)
+            off = [off, off]
         images_batch = norm[:,
                             off[0]: off[0] + self.crop_size,
                             off[1]: off[1] + self.crop_size]
@@ -551,8 +609,38 @@ class ImageNet(HDF5DataProvider):
     def postproc_labels(self, labels, f):
         return labels.astype(np.int32)
 
+    # def next(self):
+    #     batch = super(ImageNet, self).next()
+    #     feed_dict = {'images': np.squeeze(batch[self.group + '/images']),
+    #                  'labels': np.squeeze(batch[self.group + '/labels'])}
+    #     return feed_dict
+
+
+class Coordinator(object):
+    def __init__(self, itr):
+        self.curval = {}
+        self.itr = itr
+
+    def next(self, j):
+        if not self.curval:
+            curval = self.itr.next()
+            if not hasattr(curval, 'keys'):
+                n = len(curval)
+                curval = {i: curval[i] for i in range(n)}
+            self.curval = curval
+            return self.curval.pop(j)
+
+
+class Item(object):
+    def __init__(self, coordinator, j):
+        self.j = j
+        self.coordinator = coordinator
+    
     def next(self):
-        batch = super(ImageNet, self).next()
-        feed_dict = {'images': np.squeeze(batch[self.group + '/images']),
-                     'labels': np.squeeze(batch[self.group + '/labels'])}
-        return feed_dict
+        while True:
+            try:
+                val = self.coordinator.next(self.j)
+            except KeyError:
+                pass
+            else:
+                return val
