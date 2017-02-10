@@ -732,8 +732,9 @@ def train(sess,
 
     if step == 0:
         dbinterface.start_time_step = time.time()
-        validation_res = run_targets_dict(sess, validation_targets,
-                                          dbinterface=dbinterface)
+#TODO Do not evaluate on first step!
+#        validation_res = run_targets_dict(sess, validation_targets,
+#                                          dbinterface=dbinterface)
     while step < num_steps:
         old_step = step
         dbinterface.start_time_step = time.time()
