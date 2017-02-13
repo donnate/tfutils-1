@@ -1143,7 +1143,6 @@ def get_params():
     return args
 
 
-
 """
 Something like this could be used to create and save variables
 in a readable format.
