@@ -452,7 +452,6 @@ class DBInterface(object):
                         if _k in valid_res[_vk]:
                             save_to_gfs['validation_results'][_vk][_k] = valid_res[_vk].pop(_k)
 
-
             save_rec = sonify(rec)
             make_mongo_safe(save_rec)
 
@@ -800,8 +799,10 @@ def train_from_params(save_params,
         - train_params (dict)
             Containing params for data sources and targets in training:
                 - train_params['data'] contains params for the data
-                    - train_params['data']['func'] is the function that produces
-                      dictionary of data iterators
+                    - train_params['data']['func'] is the function that constructs the data
+                      provider.   This dataprovider must be an instance of a subclass of 
+                      tfutils.data.DataProviderBase.   Specifically, it must have a method
+                      called "init_ops" -- see documentation in tfutils/data.py.
                     - remainder of train_params['data'] are kwargs passed to func
                 - train_params['targets'] (optional) contains params for additional train targets
                     - train_params['targets']['func'] is a function that produces
@@ -990,7 +991,7 @@ def train_from_params(save_params,
         dbinterface.initialize()
 
         if dont_run:
-            return sess, queues, dbinterface, train_targets, global_step, validation_targets
+            return sess, queues, dbinterface, train_targets, global_step, valid_targets_dict
 
         res = train(sess,
                     queues,
@@ -1066,7 +1067,7 @@ def get_validation_target(vinputs, voutputs,
 
 def get_data(func, queue_params=None, **data_params):
     data_provider = func(**data_params)
-    input_ops = data_provider.init_threads()
+    input_ops = data_provider.init_ops()
     assert len(input_ops) == data_params['n_threads'], (len(input_ops), data_params['n_threads'])
     assert len(input_ops) > 0, len(input_ops)
     batch_size = data_params['batch_size']

@@ -8,17 +8,17 @@ import tensorflow as tf
 dir_path = os.path.dirname(os.path.realpath(__file__))
 source_paths = [os.path.join(dir_path, 'tftestdata/images'),
                 os.path.join(dir_path, 'tftestdata/means')]
-trans_dict = {(source_paths[1], 'ids'): 'ids1'}
+trans_dicts = [None, {'ids': 'ids1'}]
 
 
 def test1():
-    dp = d.TFRecordsDataProvider(source_paths,
-                                 trans_dict=trans_dict,
-                                 n_threads=2,
-                                 batch_size=20,
-                                 shuffle=True)
+    dp = d.TFRecordsParallelByFileProvider(source_paths,
+                                           trans_dicts=trans_dicts,
+                                           n_threads=2,
+                                           batch_size=20,
+                                           shuffle=True)
     sess = tf.Session()
-    ops = dp.init_threads()
+    ops = dp.init_ops()
     queue = b.get_queue(ops[0], queue_type='random')
     enqueue_ops = []
     for op in ops:
@@ -33,14 +33,15 @@ def test1():
         assert_allclose(res['images'].mean(1).mean(1).mean(1), res['means'], rtol=1e-05)
         assert_equal(res['ids'], res['ids1'])
 
+
 def test2():
-    dp = d.TFRecordsDataProvider(source_paths,
-                                 trans_dict=trans_dict,
-                                 n_threads=1,
-                                 batch_size=20,
-                                 shuffle=False)
+    dp = d.TFRecordsParallelByFileProvider(source_paths,
+                                           trans_dicts=trans_dicts,
+                                           n_threads=1,
+                                           batch_size=20,
+                                           shuffle=False)
     sess = tf.Session()
-    ops = dp.init_threads()
+    ops = dp.init_ops()
     queue = b.get_queue(ops[0], queue_type='fifo')
     enqueue_ops = []
     for op in ops:
@@ -56,4 +57,3 @@ def test2():
         assert_allclose(res['images'].mean(1).mean(1).mean(1), res['means'], rtol=1e-05)
         assert_equal(res['ids'], res['ids1'])
         assert_equal(res['ids'], testlist[31 * i: 31 * (i+1)])
-
