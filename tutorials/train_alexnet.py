@@ -5,7 +5,7 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-from tfutils import base, data, model, optimizer
+from tfutils import optimizer, data, model, base
 
 sys.path.insert(0, '..')
 
@@ -14,10 +14,10 @@ if host.startswith('node') or host == 'openmind7':  # OpenMind
     DATA_PATH = '/om/user/qbilius/imagenet/data.raw'
 else:  # agents
     # DATA_PATH = '/data/imagenet_dataset/hdf5_cached_from_om7/data.raw'
-    DATA_PATH = '/data/imagenet_dataset/imagenet2012.hdf5'
+#    DATA_PATH = '/data/imagenet_dataset/imagenet2012.hdf5'
     # DATA_PATH = '/home/qbilius/mh17/data/imagenet2012.hdf5'
-    RESTORE_VAR_FILE = '/home/qbilius/mh17/computed/alexnet_test/'
-
+#    RESTORE_VAR_FILE = '/home/qbilius/mh17/computed/alexnet_test/'
+    DATA_PATH = '/media/data/anayebi/Imagenet/imagenet2012.hdf5'
 
 def in_top_k(inputs, outputs, target):
     return {'top1': tf.nn.in_top_k(outputs, inputs[target], 1),
@@ -58,7 +58,7 @@ IMAGE_SIZE_CROP = 224
 params = {
     'save_params': {
         'host': 'localhost',
-        'port': 31001,
+        'port': 27017,
         'dbname': 'alexnet-test',
         'collname': 'alexnet',
         'exp_id': 'trainval0',
@@ -83,7 +83,8 @@ params = {
     },
 
     'model_params': {
-        'func': model.alexnet_tfutils,
+        'func': model.alexnet_tfutils_hdf5,
+        'group': 'train',
         'seed': 0,
         'norm': False  # do you want local response normalization?
     },
@@ -94,20 +95,21 @@ params = {
             'data_path': DATA_PATH,
             'group': 'train',
             'crop_size': IMAGE_SIZE_CROP,
-            'batch_size': 1
+            'batch_size': 2,
+            'n_threads': 1
         },
         'queue_params': {
             'queue_type': 'fifo',
             'batch_size': BATCH_SIZE,
-            'n_threads': 4,
-            'seed': 0,
+#            'n_threads': 4,
+#            'seed': 0,
         },
         'thres_loss': 1000,
         'num_steps': 90 * NUM_BATCHES_PER_EPOCH  # number of steps to train
     },
 
     'loss_params': {
-        'targets': 'labels',
+        'targets': 'train/labels',
         'agg_func': tf.reduce_mean,
         'loss_per_case_func': tf.nn.sparse_softmax_cross_entropy_with_logits
     },
@@ -134,16 +136,18 @@ params = {
                 'data_path': DATA_PATH,  # path to image database
                 'group': 'val',
                 'crop_size': IMAGE_SIZE_CROP,  # size after cropping an image
+                'batch_size': BATCH_SIZE,
+                'n_threads': 1
             },
             'targets': {
                 'func': in_top_k,
-                'target': 'labels',
+                'target': 'val/labels',
             },
             'queue_params': {
                 'queue_type': 'fifo',
                 'batch_size': BATCH_SIZE,
-                'n_threads': 4,
-                'seed': 0,
+#                'n_threads': 4,
+#                'seed': 0,
             },
             'num_steps': data.ImageNet.N_VAL // BATCH_SIZE + 1,
             'agg_func': lambda x: {k: np.mean(v) for k, v in x.items()},
@@ -156,5 +160,4 @@ params = {
 
 
 if __name__ == '__main__':
-    base.get_params()
     base.train_from_params(**params)
