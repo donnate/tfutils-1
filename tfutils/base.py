@@ -1093,6 +1093,10 @@ def get_data(func, queue_params=None, **data_params):
 def get_model(train_inputs, func, seed=0, train=False, **model_params):
     model_params['seed'] = seed
     model_params['train'] = train
+    if train:
+    	model_params['group'] = 'train'
+    else:
+	model_params['group'] = 'val'
     outputs, cfg_final = func(inputs=train_inputs,
                               **model_params)
     model_params['func'] = func

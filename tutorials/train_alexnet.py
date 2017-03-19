@@ -5,7 +5,7 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-from tfutils import optimizer, data, model, base
+from tfutils import data, model, base, optimizer
 
 sys.path.insert(0, '..')
 

@@ -335,3 +335,8 @@ def mnist_tfutils(inputs, train=True, **kwargs):
 def alexnet_tfutils(inputs, **kwargs):
     m = alexnet(inputs['images'], **kwargs)
     return m.output, m.params
+
+def alexnet_tfutils_hdf5(inputs, group='train', cfg_final=None, **kwargs):
+    m = alexnet(inputs[group + '/images'], **kwargs)
+    return m.output, m.params
+

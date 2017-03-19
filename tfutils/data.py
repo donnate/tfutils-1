@@ -766,7 +766,7 @@ class MNIST(object):
         return ops
 
 
-class ImageNet(HDF5DataReader):
+class ImageNet(ParallelBySliceProvider):
 
     N_TRAIN = 1281167
     N_VAL = 50000
@@ -776,6 +776,7 @@ class ImageNet(HDF5DataReader):
                  data_path,
                  group='train',
                  batch_size=1,
+                 n_threads=1,
                  crop_size=None,
                  *args,
                  **kwargs):
@@ -804,11 +805,13 @@ class ImageNet(HDF5DataReader):
         images_key = group + '/images'
         labels_key = group + '/labels'
         super(ImageNet, self).__init__(
-            data_path,
-            [images_key, labels_key],
+            basefunc=HDF5DataReader,
+            kwargs={'hdf5source': data_path,
+                    'sourcelist': [images_key, labels_key],
+                    'postprocess': {images_key: self.postproc_img, labels_key: self.postproc_labels},
+                    'pad': True},
             batch_size=batch_size,
-            postprocess={images_key: self.postproc_img, labels_key: self.postproc_labels},
-            pad=True,
+            n_threads=n_threads,
             *args, **kwargs)
         if crop_size is None:
             self.crop_size = 256
