@@ -977,6 +977,7 @@ def train_from_params(save_params,
         scope.reuse_variables()
         if validation_params is None:
             validation_params = {}
+	print(model_params['cfg_final'])
         valid_targets_dict, vqueues = get_valid_targets_dict(validation_params,
                                                              model_params,
                                                              queue_params,

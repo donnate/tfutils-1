@@ -11,15 +11,8 @@ from tfutils import base, data, model, optimizer
 
 
 host = os.uname()[1]
-if host.startswith('node') or host == 'openmind7':  # OpenMind
-    DATA_PATH = '/om/user/qbilius/imagenet/data.raw'
-elif 'gpu-1' in host or 'gpu-2' in host:
-    DATA_PATH = '/scratch/imagenet2012_tf'
-elif host.startswith('braintree'):
-    DATA_PATH = '/home/qbilius/data/imagenet2012_tf'
-else:
-    DATA_PATH = '/home/qbilius/data/imagenet2012_tf'
-
+if host.startswith('node'):
+    DATA_PATH = '/mnt/fs0/datasets/imagenet2012_tf'
 
 def loss_and_in_top_k(inputs, outputs, target):
     return {'loss': tf.nn.sparse_softmax_cross_entropy_with_logits(logits=outputs, labels=inputs[target]),
@@ -60,6 +53,8 @@ def exponential_decay(global_step,
 BATCH_SIZE = 256
 NUM_BATCHES_PER_EPOCH = data.ImageNet.N_TRAIN // BATCH_SIZE
 IMAGE_SIZE_CROP = 224
+
+print(BATCH_SIZE,NUM_BATCHES_PER_EPOCH,IMAGE_SIZE_CROP)
 
 params = {
     'save_params': {
@@ -188,6 +183,7 @@ params = {
     'log_device_placement': False,  # if variable placement has to be logged
 }
 
+print(params)
 
 if __name__ == '__main__':
     base.get_params()
