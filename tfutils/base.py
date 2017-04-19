@@ -675,8 +675,7 @@ def test_from_params(load_params,
         # TODO: have option to reconstitute model_params entirely from saved object ("revivification")
         model_params['seed'] = ld['params']['model_params']['seed']
         cfg_final = ld['params']['model_params']['cfg_final']
-        train_queue_params = ld['params']['train_params']['queue_params']
-        print(ld)
+        train_queue_params = ld['params']['train_params']['queue_params']        
         valid_targets_dict, queues = get_valid_targets_dict(validation_params,
                                                             model_params,
                                                             train_queue_params,
@@ -977,7 +976,7 @@ def train_from_params(save_params,
         scope = tf.get_variable_scope()
         scope.reuse_variables()
         if validation_params is None:
-            validation_params = {}
+            validation_params = {}                    
         valid_targets_dict, vqueues = get_valid_targets_dict(validation_params,
                                                              model_params,
                                                              queue_params,
@@ -1038,6 +1037,8 @@ def get_valid_targets_dict(validation_params,
     assert 'seed' in model_params
     for vtarg in validation_params:
         queue_params = validation_params[vtarg].get('queue_params', default_queue_params)
+        print(queue_params)
+        print(validation_params[vtarg]['data_params'])
         _, vinputs, queue = get_data(queue_params=queue_params,
                                      **validation_params[vtarg]['data_params'])
         queues.append(queue)
