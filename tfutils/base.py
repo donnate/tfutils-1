@@ -1085,6 +1085,10 @@ def get_validation_target(vinputs, voutputs,
 
 
 def get_data(func, queue_params=None, **data_params):
+    print('func')
+    print(func)
+    print('**data_params')
+    print(data_params)
     data_provider = func(**data_params)
     input_ops = data_provider.init_ops()
     assert len(input_ops) == data_params['n_threads'], (len(input_ops), data_params['n_threads'])
