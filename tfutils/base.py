@@ -1037,7 +1037,9 @@ def get_valid_targets_dict(validation_params,
     assert 'seed' in model_params
     for vtarg in validation_params:
         queue_params = validation_params[vtarg].get('queue_params', default_queue_params)
+        print('queue params')
         print(queue_params)
+        print('validation_params[vtarg][data_params])')
         print(validation_params[vtarg]['data_params'])
         _, vinputs, queue = get_data(queue_params=queue_params,
                                      **validation_params[vtarg]['data_params'])
