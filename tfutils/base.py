@@ -676,6 +676,7 @@ def test_from_params(load_params,
         model_params['seed'] = ld['params']['model_params']['seed']
         cfg_final = ld['params']['model_params']['cfg_final']
         train_queue_params = ld['params']['train_params']['queue_params']
+        print(ld)
         valid_targets_dict, queues = get_valid_targets_dict(validation_params,
                                                             model_params,
                                                             train_queue_params,
