@@ -1020,7 +1020,6 @@ def train_from_params(save_params,
         sess.close()
         return res
 
-
 def get_valid_targets_dict(validation_params,
                            model_params,
                            default_queue_params,

@@ -183,7 +183,10 @@ params = {
     'log_device_placement': False,  # if variable placement has to be logged
 }
 
-print(params)
+print('train params')
+print(params['train_params'])
+print('model params')
+print(params['model_params'])
 
 if __name__ == '__main__':
     base.get_params()
