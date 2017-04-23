@@ -844,8 +844,9 @@ class ImageNetTF(TFRecordsParallelByFileProvider):
 
     def __init__(self, source_dirs, crop_size=224, **kwargs):
         """
-        ImageNet data provider for TFRecords
+        ImageNet data provider for TFRecords    
         """
+        print('SOURCE_DIRS', source_dirs)
         self.crop_size = crop_size
         postprocess = {'images': [(self.postprocess_images, (), {})]}
         super(ImageNetTF, self).__init__(source_dirs, postprocess=postprocess, **kwargs)
