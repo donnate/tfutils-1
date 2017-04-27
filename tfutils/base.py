@@ -20,6 +20,7 @@ from bson.objectid import ObjectId
 import gridfs
 import tensorflow as tf
 from tensorflow.core.protobuf import saver_pb2
+import numpy as np
 
 from tfutils.error import HiLossError, NoGlobalStepError, NoChangeError
 from tfutils.data import get_queue
