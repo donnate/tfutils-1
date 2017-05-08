@@ -163,6 +163,7 @@ def test_training_save():
                                       'staircase': True}
 
     # actually run the training
+    ## jefan: 4/18/17: where are the load_params to pass to train_from_params here?
     base.train_from_params(**params)
 
     # check that the first image has been saved
