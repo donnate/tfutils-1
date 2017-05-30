@@ -684,7 +684,9 @@ def test_from_params(load_params,
                      validation_params,
                      log_device_placement=False,
                      save_params=None,
-                     dont_run=False):
+                     dont_run=False,
+                     inter_op_parallelism_threads=40,
+                     ):
 
     """
     Main testing interface function.
@@ -699,7 +701,8 @@ def test_from_params(load_params,
 
         # create session
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-                                                log_device_placement=log_device_placement))
+            log_device_placement=log_device_placement,
+            inter_op_parallelism_threads=inter_op_parallelism_threads))
 
         dbinterface = DBInterface(load_params=load_params)
         dbinterface.load_rec()
@@ -721,7 +724,8 @@ def test_from_params(load_params,
                   'save_params': save_params,
                   'model_params': model_params,
                   'validation_params': validation_params,
-                  'log_device_placement': log_device_placement}
+                  'log_device_placement': log_device_placement,
+                  'inter_op_parallelism_threads': inter_op_parallelism_threads}
 
         dbinterface = DBInterface(sess=sess,
                                   params=params,
@@ -815,7 +819,8 @@ def train_from_params(save_params,
                       validation_params=None,
                       log_device_placement=False,
                       load_params=None,
-                      dont_run=False
+                      dont_run=False,
+                      inter_op_parallelism_threads=40,
                       ):
     """
     Main training interface function.
@@ -958,6 +963,10 @@ def train_from_params(save_params,
 
         - log_device_placement (bool, default: False)
             Whether to log device placement in tensorflow session
+
+        - inter_op_parallelism_threads (int, default: 40)
+            Inter op thread pool size (has to be set large enough to avoid deadlock
+            when using multiple queues)
     """
 
     with tf.Graph().as_default():  # to have multiple graphs [ex: eval, train]
@@ -1020,7 +1029,8 @@ def train_from_params(save_params,
 
         # create session
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-                                                log_device_placement=log_device_placement))
+            log_device_placement=log_device_placement,
+            inter_op_parallelism_threads=inter_op_parallelism_threads))
 
         params = {'save_params': save_params,
                   'load_params': load_params,
@@ -1030,7 +1040,8 @@ def train_from_params(save_params,
                   'learning_rate_params': learning_rate_params,
                   'optimizer_params': optimizer_params,
                   'validation_params': validation_params,
-                  'log_device_placement': log_device_placement}
+                  'log_device_placement': log_device_placement,
+                  'inter_op_parallelism_threads': inter_op_parallelism_threads}
         dbinterface = DBInterface(sess=sess, global_step=global_step, params=params,
                                   save_params=save_params, load_params=load_params)
         dbinterface.initialize()
