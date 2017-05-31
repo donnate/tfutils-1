@@ -846,6 +846,7 @@ def train_from_params(save_params,
                       learning_rate_params=None,
                       optimizer_params=None,
                       validation_params=None,
+                      postsess_params=None,
                       log_device_placement=False,
                       load_params=None,
                       dont_run=False,
@@ -1228,6 +1229,12 @@ def train_from_params(save_params,
         #var_list = {v.op.name:v for v in all_vars}
 
         #print(var_list.keys())
+
+        if not postsess_params is None:
+            assert 'func' in postsess_params, "Postsess params must have 'func'!"
+            post_func = postsess_params.pop('func')
+            postsess_params['sess'] = sess
+            post_func(**postsess_params)
 
         if dont_run:
             return sess, queues, dbinterface, train_targets, global_step, valid_targets_dict
