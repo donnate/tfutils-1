@@ -248,7 +248,7 @@ def get_data_paths(paths, file_pattern=DEFAULT_TFRECORDS_GLOB_PATTERN, file_grab
 
 def get_parser(shape, dtype):
     dtype = dtype if dtype in [tf.float32, tf.int64] else tf.string
-    shape = shape if dtype in [tf.float32, tf.int64] else [1]
+    shape = shape if dtype in [tf.float32, tf.int64] else []
     return tf.FixedLenFeature(shape, dtype)
 
 
@@ -679,7 +679,8 @@ def get_queue(nodes,
               batch_size=256,
               capacity=None,
               min_after_dequeue=None,
-              seed=0):
+              seed=0,
+              shape_flag = True):
     """ A generic queue for reading data
         Built on top of https://indico.io/blog/tensorflow-data-input-part2-extensions/
     """
@@ -697,7 +698,14 @@ def get_queue(nodes,
     for name in nodes.keys():
         names.append(name)
         dtypes.append(nodes[name].dtype)
-        shapes.append(nodes[name].get_shape()[1:])
+        #print(name, nodes[name].get_shape().as_list())
+        if shape_flag:
+            shapes.append(nodes[name].get_shape()[1:])
+        else:
+            shapes.append(nodes[name].get_shape())
+
+    if batch_size==1:
+        shapes = None
 
     if queue_type == 'random':
         queue = tf.RandomShuffleQueue(capacity=capacity,
