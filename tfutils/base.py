@@ -1127,10 +1127,15 @@ def train_from_params(save_params,
         else:
             train_targets = []
 
-            for curr_loss, curr_learning_rate, curr_optimizer in zip(loss, learning_rate, optimizer):
+            for i, (curr_loss, curr_learning_rate, curr_optimizer) in enumerate(zip(loss, learning_rate, optimizer)):
                 train_targets.append({'loss': curr_loss,
                              'learning_rate': curr_learning_rate,
                              'optimizer': curr_optimizer})
+                if train_params.get('targets') is not None:
+                    ttargs_kwargs = copy.deepcopy(train_params['targets'])
+                    ttargs_func = ttargs_kwargs.pop('func')
+                    ttarg = ttargs_func(train_inputs, train_outputs, **ttargs_kwargs)
+                    train_targets[i].update(ttarg)
 
 
         scope = tf.get_variable_scope()
