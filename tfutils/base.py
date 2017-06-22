@@ -530,6 +530,20 @@ class DBInterface(object):
             self.checkpoint_thread = None
 
     def _save_thread(self, save_filters_permanent, save_filters_tmp, save_rec, step, save_to_gfs):
+
+        if self.collfs_rec:
+            save_rec['saved_filters'] = False
+            log.info('Inserting record into record database.')
+            outrec = self.collfs_rec._GridFS__files.insert_one(save_rec)
+
+            if not isinstance(outrec, ObjectId):
+                outrec = outrec.inserted_id
+
+            if save_to_gfs:
+                idval = str(outrec)
+                save_to_gfs_path = idval + "_fileitems"
+                self.collfs_rec.put(cPickle.dumps(save_to_gfs), filename=save_to_gfs_path, item_for=outrec)
+
         if save_filters_permanent or save_filters_tmp:
             save_rec['saved_filters'] = True
             save_path = os.path.join(self.cache_dir, 'checkpoint')
@@ -562,9 +576,6 @@ class DBInterface(object):
             log.info('Inserting record into database.')
             outrec = self.collfs._GridFS__files.insert_one(save_rec)
 
-        if self.collfs_rec:
-            self.collfs_rec._GridFS__files.insert_one(save_rec)
-
         if not isinstance(outrec, ObjectId):
             outrec = outrec.inserted_id
 
@@ -572,9 +583,6 @@ class DBInterface(object):
             idval = str(outrec)
             save_to_gfs_path = idval + "_fileitems"
             self.collfs.put(cPickle.dumps(save_to_gfs), filename=save_to_gfs_path, item_for=outrec)
-
-            if self.collfs_rec:
-                self.collfs_rec.put(cPickle.dumps(save_to_gfs), filename=save_to_gfs_path, item_for=outrec)
 
         sys.stdout.flush()  # flush the stdout buffer
         self.outrecs.append(outrec)
