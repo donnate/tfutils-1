@@ -207,6 +207,18 @@ class DBInterface(object):
         self.conn = pymongo.MongoClient(host=self.host, port=self.port)
         self.conn.server_info()
         self.collfs = gridfs.GridFS(self.conn[self.dbname], self.collname)
+
+        if 'port_rec' in save_params:
+            tmp_host = save_params.get('host_rec', self.host)
+            tmp_port = save_params['port_rec']
+
+            self.conn_rec = pymongo.MongoClient(host=tmp_host, port=tmp_port)
+            self.conn_rec.server_info()
+            self.collfs_rec = gridfs.GridFS(self.conn_rec[self.dbname], self.collname)
+        else:
+            self.conn_rec = None
+            self.collfs_rec = None
+
         recent_name = '_'.join([self.dbname, self.collname, self.exp_id, '__RECENT'])
         self.collfs_recent = gridfs.GridFS(self.conn[recent_name])
 
@@ -550,6 +562,9 @@ class DBInterface(object):
             log.info('Inserting record into database.')
             outrec = self.collfs._GridFS__files.insert_one(save_rec)
 
+        if self.collfs_rec:
+            self.collfs_rec._GridFS__files.insert_one(save_rec)
+
         if not isinstance(outrec, ObjectId):
             outrec = outrec.inserted_id
 
@@ -557,6 +572,9 @@ class DBInterface(object):
             idval = str(outrec)
             save_to_gfs_path = idval + "_fileitems"
             self.collfs.put(cPickle.dumps(save_to_gfs), filename=save_to_gfs_path, item_for=outrec)
+
+            if self.collfs_rec:
+                self.collfs_rec.put(cPickle.dumps(save_to_gfs), filename=save_to_gfs_path, item_for=outrec)
 
         sys.stdout.flush()  # flush the stdout buffer
         self.outrecs.append(outrec)
