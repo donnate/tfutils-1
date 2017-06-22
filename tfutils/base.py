@@ -1122,8 +1122,9 @@ def train_from_params(save_params,
         if not flag_multiple:
             loss_params, loss = get_loss(train_inputs, train_outputs, **loss_params)
             if isinstance(loss, list):
-                loss = tf.stack(loss)
-                loss = tf.reduce_mean(loss)
+                pass
+                #loss = tf.stack(loss)
+                #loss = tf.reduce_mean(loss)
 
         else:
             new_loss_params = []
@@ -1136,8 +1137,9 @@ def train_from_params(save_params,
                 new_loss_params.append(tmp_loss_params)
 
                 if isinstance(tmp_loss, list):
-                    tmp_loss = tf.stack(tmp_loss)
-                    tmp_loss = tf.reduce_mean(tmp_loss)
+                    pass
+                    #tmp_loss = tf.stack(tmp_loss)
+                    #tmp_loss = tf.reduce_mean(tmp_loss)
 
                 loss.append(tmp_loss)
 
@@ -1168,6 +1170,10 @@ def train_from_params(save_params,
                                                         loss,
                                                         global_step,
                                                         optimizer_params)
+
+            if isinstance(loss, list):
+                loss = tf.stack(loss)
+                loss = tf.reduce_mean(loss)
         else:
             new_optimizer_params = []
             optimizer = []
@@ -1180,6 +1186,11 @@ def train_from_params(save_params,
                                                                 optimizer_param)
                 new_optimizer_params.append(tmp_optimizer_params)
                 optimizer.append(tmp_optimizer)
+
+            for i in xrange(len(loss)):
+                if isinstance(loss[i], list):
+                    loss[i] = tf.stack(loss[i])
+                    loss[i] = tf.reduce_mean(loss[i])
 
             optimizer_params = new_optimizer_params
 
