@@ -152,7 +152,11 @@ class DBInterface(object):
                         Whether to restore from saved model
                     - load_query (dict)
                         mongodb query describing how to load from loading database
-            - sess (tesorflow.Session)
+                    - load_param_dict (dict)
+                        A dictionary whose keys are the names of the variables that are to be loaded
+                        from the checkpoint, and the values are the names of the variables of the model 
+                        that you want to restore with the value of the corresponding checkpoint variable.
+            - sess (tensorflow.Session)
                 Object in which to run calculations.  This is required if actual loading/
                 saving is going to be done (as opposed to just e.g. getting elements from
                 the MongoDB).
@@ -171,9 +175,11 @@ class DBInterface(object):
         self.global_step = global_step
         self.tfsaver_args = tfsaver_args
         self.tfsaver_kwargs = tfsaver_kwargs
+        self.no_save = False
 
         if save_params is None:
             save_params = {}
+            self.no_save = True
         if load_params is None:
             load_params = {}
         location_variables = ['host', 'port', 'dbname', 'collname', 'exp_id']
@@ -189,6 +195,8 @@ class DBInterface(object):
             setattr(self, _k, sv)
             setattr(self, 'load_' + _k, lv)
         self.sameloc = all([getattr(self, _k) == getattr(self, 'load_' + _k) for _k in location_variables])
+        if self.no_save:
+            self.sameloc = False
 
         for _k in ['do_save', 'save_metrics_freq', 'save_valid_freq', 'cache_filters_freq',
                    'save_filters_freq', 'save_initial_filters', 'save_to_gfs']:
@@ -212,9 +220,12 @@ class DBInterface(object):
         if load_query is None:
             load_query = {}
         else:
-            if self.sameloc:
+            if self.sameloc: 
                 raise Exception('Loading pointlessly')
-        load_query.update({'exp_id': self.load_exp_id})
+                
+        if 'exp_id' not in load_query:
+            load_query.update({'exp_id': self.load_exp_id})
+
         self.load_query = load_query
         if self.load_host != self.host or self.port != self.load_port:
             self.load_conn = pymongo.MongoClient(host=self.load_host,
@@ -274,9 +285,22 @@ class DBInterface(object):
             if self.load_data is not None:
                 rec, cache_filename = self.load_data
                 # get variables to restore
-                restore_vars = self.get_restore_vars(cache_filename)
-                log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
-                tf_saver_restore = tf.train.Saver(restore_vars)
+                if self.load_params['load_param_dict'] is None:
+                    restore_vars = self.get_restore_vars(cache_filename)
+                    log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
+                    tf_saver_restore = tf.train.Saver(restore_vars)
+                else:
+                    all_variables = tf.global_variables() + tf.local_variables()
+                    # associate values with actual variables
+                    load_var_dict = {}
+                    for key, value in self.load_params['load_param_dict'].items():
+                        for var in all_variables:
+                            if var.name.split(':')[0] == value:
+                               load_var_dict[key] = var
+                               break 
+                    restore_vars = list(load_var_dict.values()) 
+                    log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
+                    tf_saver_restore = tf.train.Saver(load_var_dict) 
                 # tensorflow restore
                 log.info('Restoring variables from record %s (step %d)...' % (str(rec['_id']), rec['step']))
                 tf_saver_restore.restore(self.sess, cache_filename)
@@ -407,6 +431,8 @@ class DBInterface(object):
         Actually saves record into DB and makes local filter caches
 
         """
+        if self.no_save:
+            raise Exception('No save parameters, no saving!')
         if train_res is None:
             train_res = {}
         if valid_res is None:
@@ -684,7 +710,9 @@ def test_from_params(load_params,
                      validation_params,
                      log_device_placement=False,
                      save_params=None,
-                     dont_run=False):
+                     dont_run=False,
+                     inter_op_parallelism_threads=40,
+                     ):
 
     """
     Main testing interface function.
@@ -699,7 +727,8 @@ def test_from_params(load_params,
 
         # create session
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-                                                log_device_placement=log_device_placement))
+            log_device_placement=log_device_placement,
+            inter_op_parallelism_threads=inter_op_parallelism_threads))
 
         dbinterface = DBInterface(load_params=load_params)
         dbinterface.load_rec()
@@ -721,7 +750,8 @@ def test_from_params(load_params,
                   'save_params': save_params,
                   'model_params': model_params,
                   'validation_params': validation_params,
-                  'log_device_placement': log_device_placement}
+                  'log_device_placement': log_device_placement,
+                  'inter_op_parallelism_threads': inter_op_parallelism_threads}
 
         dbinterface = DBInterface(sess=sess,
                                   params=params,
@@ -815,7 +845,8 @@ def train_from_params(save_params,
                       validation_params=None,
                       log_device_placement=False,
                       load_params=None,
-                      dont_run=False
+                      dont_run=False,
+                      inter_op_parallelism_threads=40,
                       ):
     """
     Main training interface function.
@@ -958,6 +989,10 @@ def train_from_params(save_params,
 
         - log_device_placement (bool, default: False)
             Whether to log device placement in tensorflow session
+
+        - inter_op_parallelism_threads (int, default: 40)
+            Inter op thread pool size (has to be set large enough to avoid deadlock
+            when using multiple queues)
     """
 
     with tf.Graph().as_default():  # to have multiple graphs [ex: eval, train]
@@ -1020,7 +1055,8 @@ def train_from_params(save_params,
 
         # create session
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-                                                log_device_placement=log_device_placement))
+            log_device_placement=log_device_placement,
+            inter_op_parallelism_threads=inter_op_parallelism_threads))
 
         params = {'save_params': save_params,
                   'load_params': load_params,
@@ -1030,7 +1066,8 @@ def train_from_params(save_params,
                   'learning_rate_params': learning_rate_params,
                   'optimizer_params': optimizer_params,
                   'validation_params': validation_params,
-                  'log_device_placement': log_device_placement}
+                  'log_device_placement': log_device_placement,
+                  'inter_op_parallelism_threads': inter_op_parallelism_threads}
         dbinterface = DBInterface(sess=sess, global_step=global_step, params=params,
                                   save_params=save_params, load_params=load_params)
         dbinterface.initialize()
@@ -1130,7 +1167,10 @@ def get_data(func, queue_params=None, **data_params):
             enqueue_ops.append(queue.enqueue_many(input_op))
     tf.train.queue_runner.add_queue_runner(tf.train.queue_runner.QueueRunner(queue,
                                                                              enqueue_ops))
-    inputs = queue.dequeue_many(queue_params['batch_size'])
+    if queue_params['batch_size']==1:
+        inputs = queue.dequeue()
+    else:
+        inputs = queue.dequeue_many(queue_params['batch_size'])
     return data_params, inputs, queue
 
 
