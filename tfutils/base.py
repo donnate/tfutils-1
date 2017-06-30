@@ -69,7 +69,7 @@ DEFAULT_SAVE_PARAMS = frozendict({'save_metrics_freq': 100,
                                   'do_save': True})
 
 
-DEFAULT_LOAD_PARAMS = frozendict({'do_restore': True})
+DEFAULT_LOAD_PARAMS = frozendict({'do_restore': True, 'load_param_dict': None, 'load_step': True})
 
 
 class DBInterface(object):
@@ -287,6 +287,8 @@ class DBInterface(object):
                 # get variables to restore
                 if self.load_params['load_param_dict'] is None:
                     restore_vars = self.get_restore_vars(cache_filename)
+                    if self.load_params['load_step'] is False:
+                        restore_vars = [restore_var for restore_var in restore_vars if 'global_step' not in restore_var.name]
                     log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
                     tf_saver_restore = tf.train.Saver(restore_vars)
                 else:
