@@ -156,6 +156,8 @@ class DBInterface(object):
                         A dictionary whose keys are the names of the variables that are to be loaded
                         from the checkpoint, and the values are the names of the variables of the model 
                         that you want to restore with the value of the corresponding checkpoint variable.
+                    - load_step (bool)
+                        Whether to restore global_step
             - sess (tensorflow.Session)
                 Object in which to run calculations.  This is required if actual loading/
                 saving is going to be done (as opposed to just e.g. getting elements from
@@ -288,7 +290,7 @@ class DBInterface(object):
                 if self.load_param_dict is None:
                     restore_vars = self.get_restore_vars(cache_filename)
                     if self.load_step is False:
-                        restore_vars = [restore_var for restore_var in restore_vars if 'global_step' not in restore_var.name]
+                        restore_vars = [restore_var for restore_var in restore_vars if 'global_step' not in restore_var.name] 
                     log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
                     tf_saver_restore = tf.train.Saver(restore_vars)
                 else:
@@ -300,6 +302,8 @@ class DBInterface(object):
                             if var.name.split(':')[0] == value:
                                load_var_dict[key] = var
                                break 
+                    if self.load_step is False:
+                        load_var_dict = {k:v for k,v in load_var_dict.items() if 'global_step' not in v.name}
                     restore_vars = list(load_var_dict.values()) 
                     log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
                     tf_saver_restore = tf.train.Saver(load_var_dict) 
