@@ -309,11 +309,12 @@ class DBInterface(object):
                 log.info('Restoring variables from record %s (step %d)...' % (str(rec['_id']), rec['step']))
                 tf_saver_restore.restore(self.sess, cache_filename)
                 log.info('... done restoring.')
-                all_variables = tf.global_variables() + tf.local_variables() # get list of all variables
-                unrestored_vars = [var for var in all_variables \
-                                            if var not in restore_vars] # compute list of variables not restored
-                self.sess.run(tf.variables_initializer(unrestored_vars)) # initialize variables not restored
-                assert len(self.sess.run(tf.report_uninitialized_variables())) == 0, self.sess.run(tf.report_uninitialized_variables())
+                if self.var_list==None:
+                    all_variables = tf.global_variables() + tf.local_variables() # get list of all variables
+                    unrestored_vars = [var for var in all_variables \
+                                                if var not in restore_vars] # compute list of variables not restored
+                    self.sess.run(tf.variables_initializer(unrestored_vars)) # initialize variables not restored
+                    assert len(self.sess.run(tf.report_uninitialized_variables())) == 0, self.sess.run(tf.report_uninitialized_variables())
         if (not self.do_restore or self.load_data is None) and not no_scratch:
             init_op_global = tf.global_variables_initializer()
             self.sess.run(init_op_global)
