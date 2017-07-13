@@ -82,6 +82,7 @@ class DBInterface(object):
                  sess=None,
                  global_step=None,
                  cache_dir=None,
+                 var_list=None,
                  *tfsaver_args,
                  **tfsaver_kwargs):
         """
@@ -172,6 +173,7 @@ class DBInterface(object):
         self.global_step = global_step
         self.tfsaver_args = tfsaver_args
         self.tfsaver_kwargs = tfsaver_kwargs
+        self.var_list = var_list
 
         if save_params is None:
             save_params = {}
@@ -295,9 +297,14 @@ class DBInterface(object):
             if self.load_data is not None:
                 rec, cache_filename = self.load_data
                 # get variables to restore
-                restore_vars = self.get_restore_vars(cache_filename)
-                log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
+                if self.var_list==None:
+                    restore_vars = self.get_restore_vars(cache_filename)
+                    log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
+                else:
+                    restore_vars = self.var_list
+                    log.info('Restored Vars:\n'+str([restore_var for restore_var in restore_vars]))
                 tf_saver_restore = tf.train.Saver(restore_vars)
+                     
                 # tensorflow restore
                 log.info('Restoring variables from record %s (step %d)...' % (str(rec['_id']), rec['step']))
                 tf_saver_restore.restore(self.sess, cache_filename)
