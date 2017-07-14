@@ -82,7 +82,6 @@ class DBInterface(object):
                  sess=None,
                  global_step=None,
                  cache_dir=None,
-                 var_list=None,
                  *tfsaver_args,
                  **tfsaver_kwargs):
         """
@@ -173,7 +172,8 @@ class DBInterface(object):
         self.global_step = global_step
         self.tfsaver_args = tfsaver_args
         self.tfsaver_kwargs = tfsaver_kwargs
-        self.var_list = var_list
+        if 'var_list' in tfsaver_kwargs:
+            self.var_list = tfsaver_kwargs['var_list']
 
         if save_params is None:
             save_params = {}
