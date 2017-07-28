@@ -288,6 +288,8 @@ class DBInterface(object):
             if self.from_ckpt is not None:
                 ckpt_filename = self.from_ckpt
                 restore_vars = self.get_restore_vars(ckpt_filename)
+                if self.load_step is False:
+                    restore_vars = [restore_var for restore_var in restore_vars if 'global_step' not in restore_var.name] 
                 tf_saver_restore = tf.train.Saver(restore_vars)
                 log.info('Restoring variables from checkpoint %s ...' %ckpt_filename)
                 tf_saver_restore.restore(self.sess, ckpt_filename)
