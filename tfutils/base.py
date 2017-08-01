@@ -1106,8 +1106,9 @@ def train_from_params(save_params,
                                                                         **train_params['data_params'])
             queues = [queue]
         else:
-            train_inputs, queues = get_data_mult(queue_params_list = queue_params, 
+            train_params['data_params'], train_inputs, queues = get_data_mult(queue_params_list = queue_params, 
                                                 data_params_list = train_params['data_params'])
+            train_params['data_params'] = {}
 
         if 'num_steps' not in train_params:
             train_params['num_steps'] = DEFAULT_TRAIN_NUM_STEPS
@@ -1363,7 +1364,7 @@ def get_valid_targets_dict(validation_params,
                                          **validation_params[vtarg]['data_params'])
             queues.append(queue)
         else:
-            vinputs, queue = get_data_mult(queue_params_list = queue_params, 
+            _, vinputs, queue = get_data_mult(queue_params_list = queue_params, 
                                            data_params_list = validation_params[vtarg]['data_params'])
             queues.extend(queue)
 
@@ -1440,7 +1441,7 @@ def get_data_mult(queue_params_list, data_params_list):
         all_inputs.update(inputs)
         all_queues.append(queue)
 
-    return all_inputs, all_queues
+    return data_params_list, all_inputs, all_queues
 
 def get_data(func, queue_params=None, **data_params):
     data_provider = func(**data_params)
