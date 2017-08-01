@@ -1101,9 +1101,13 @@ def train_from_params(save_params,
                     global_step.append(tmp_global_step)
 
         queue_params = train_params.get('queue_params')
-        train_params['data_params'], train_inputs, queue = get_data(queue_params=queue_params,
-                                                                    **train_params['data_params'])
-        queues = [queue]
+        if not isinstance(queue_params, list):
+            train_params['data_params'], train_inputs, queue = get_data(queue_params=queue_params,
+                                                                        **train_params['data_params'])
+            queues = [queue]
+        else:
+            train_inputs, queues = get_data_mult(queue_params_list = queue_params, 
+                                                data_params_list = train_params['data_params'])
 
         if 'num_steps' not in train_params:
             train_params['num_steps'] = DEFAULT_TRAIN_NUM_STEPS
@@ -1354,9 +1358,15 @@ def get_valid_targets_dict(validation_params,
     assert 'seed' in model_params
     for vtarg in validation_params:
         queue_params = validation_params[vtarg].get('queue_params', default_queue_params)
-        _, vinputs, queue = get_data(queue_params=queue_params,
-                                     **validation_params[vtarg]['data_params'])
-        queues.append(queue)
+        if not isinstance(queue_params, list):
+            _, vinputs, queue = get_data(queue_params=queue_params,
+                                         **validation_params[vtarg]['data_params'])
+            queues.append(queue)
+        else:
+            vinputs, queue = get_data_mult(queue_params_list = queue_params, 
+                                           data_params_list = validation_params[vtarg]['data_params'])
+            queues.extend(queue)
+
         scope_name = 'validation/%s' % vtarg
         with tf.name_scope(scope_name):
             _mp, voutputs = get_model(vinputs, train=False, **model_params)
@@ -1396,6 +1406,41 @@ def get_validation_target(vinputs, voutputs,
                      'num_steps': validation_params['num_steps']}
     return validation_params, valid_targets
 
+def get_data_mult(queue_params_list, data_params_list):
+    assert len(queue_params_list)==len(data_params_list), 'If queue params and data params are lists, they should have the same length'
+
+    all_inputs = {}
+    all_queues = []
+
+    for queue_params, data_params in zip(queue_params_list, data_params_list):
+        func = data_params.pop('func')
+
+        data_provider = func(**data_params)
+        input_ops = data_provider.init_ops()
+        assert len(input_ops) == data_params['n_threads'], (len(input_ops), data_params['n_threads'])
+        assert len(input_ops) > 0, len(input_ops)
+        batch_size = data_params['batch_size']
+        data_params['func'] = func
+
+        enqueue_ops = []
+        queue = get_queue(input_ops[0], shape_flag = batch_size!=1, **queue_params)
+        for input_op in input_ops:
+            #enqueue_ops.append(queue.enqueue_many(input_op))
+            if batch_size == 1:
+                enqueue_ops.append(queue.enqueue(input_op))
+            else:
+                enqueue_ops.append(queue.enqueue_many(input_op))
+        tf.train.queue_runner.add_queue_runner(tf.train.queue_runner.QueueRunner(queue,
+                                                                                 enqueue_ops))
+        if queue_params['batch_size']==1:
+            inputs = queue.dequeue()
+        else:
+            inputs = queue.dequeue_many(queue_params['batch_size'])
+
+        all_inputs.update(inputs)
+        all_queues.append(queue)
+
+    return all_inputs, all_queues
 
 def get_data(func, queue_params=None, **data_params):
     data_provider = func(**data_params)
