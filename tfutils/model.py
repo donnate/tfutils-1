@@ -83,20 +83,12 @@ def depthsep_conv(inp,
                 padding = dep_padding,
                 *args, **kwargs)
 
-    if batch_norm:
-        d_out = tf.nn.batch_normalization(d_out, mean=0, variance=1, offset=None,
-                        scale=None, variance_epsilon=1e-8, name='batch_norm_d')
-
     with tf.variable_scope('pointwise_conv'):
         p_out = conv(d_out, out_depth = out_depth,
                 ksize = 1,
                 strides = 1,
                 padding = sep_padding,
                 *args, **kwargs)
-
-    if batch_norm:
-        p_out = tf.nn.batch_normalization(p_out, mean=0, variance=1, offset=None,
-                        scale=None, variance_epsilon=1e-8, name='batch_norm_p')
 
     return p_out
 
@@ -109,7 +101,8 @@ def depth_conv(inp,
              kernel_init_kwargs=None,
              bias=1,
              activation='relu',
-             weight_decay=None
+             weight_decay=None,
+             batch_norm = True
              ):
 
     # assert out_shape is not None
@@ -149,7 +142,10 @@ def depth_conv(inp,
     
     if activation is not None:
         output = getattr(tf.nn, activation)(output, name=activation)
-    
+
+    if batch_norm:
+        output = tf.nn.batch_normalization(output, mean=0, variance=1, offset=None,
+                            scale=None, variance_epsilon=1e-8, name='batch_norm')
     return output
 
 def fc(inp,
