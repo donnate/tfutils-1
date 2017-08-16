@@ -64,6 +64,93 @@ def conv(inp,
                             scale=None, variance_epsilon=1e-8, name='batch_norm')
     return output
 
+def depthsep_conv(inp,
+             out_depth,
+             multiplier=1,
+             ksize=3,
+             strides=1,
+             dep_padding='SAME',
+             sep_padding='SAME',
+             batch_norm = True,
+             *args,
+             **kwargs
+             ):
+
+    with tf.variable_scope('depthwise_conv'):
+        d_out = depth_conv(inp, multiplier = multiplier,
+                ksize = ksize,
+                strides = strides,
+                padding = dep_padding,
+                *args, **kwargs)
+
+    if batch_norm:
+        d_out = tf.nn.batch_normalization(d_out, mean=0, variance=1, offset=None,
+                        scale=None, variance_epsilon=1e-8, name='batch_norm_d')
+
+    with tf.variable_scope('pointwise_conv'):
+        p_out = conv(d_out, out_depth = out_depth,
+                ksize = 1,
+                strides = 1,
+                padding = sep_padding,
+                *args, **kwargs)
+
+    if batch_norm:
+        p_out = tf.nn.batch_normalization(p_out, mean=0, variance=1, offset=None,
+                        scale=None, variance_epsilon=1e-8, name='batch_norm_p')
+
+    return p_out
+
+def depth_conv(inp,
+             multiplier=1,
+             ksize=3,
+             strides=1,
+             padding='SAME',
+             kernel_init='xavier',
+             kernel_init_kwargs=None,
+             bias=1,
+             activation='relu',
+             weight_decay=None
+             ):
+
+    # assert out_shape is not None
+    if weight_decay is None:
+        weight_decay = 0.
+    if isinstance(ksize, int):
+        ksize = [ksize, ksize]
+    if isinstance(strides, int):
+        strides = [1, strides, strides, 1]
+
+    if kernel_init_kwargs is None:
+        kernel_init_kwargs = {}
+    
+    in_depth = inp.get_shape().as_list()[-1]
+
+    out_depth = multiplier * in_depth
+
+    # weights
+    init = initializer(kernel_init, **kernel_init_kwargs)
+    kernel = tf.get_variable(initializer=init,
+                            shape=[ksize[0], ksize[1], in_depth, out_depth],
+                            dtype=tf.float32,
+                            regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+                            name='weights')
+    init = initializer(kind='constant', value=bias)
+    biases = tf.get_variable(initializer=init,
+                            shape=[out_depth],
+                            dtype=tf.float32,
+                            regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+                            name='bias')
+
+    conv = tf.nn.depthwise_conv2d(inp, kernel,
+                            strides=strides,
+                            padding=padding)
+        
+    output = tf.nn.bias_add(conv, biases, name='conv')
+    
+    if activation is not None:
+        output = getattr(tf.nn, activation)(output, name=activation)
+    
+    return output
 
 def fc(inp,
        out_depth,
