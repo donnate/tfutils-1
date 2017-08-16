@@ -88,7 +88,16 @@ def depthsep_conv(inp,
                 ksize = 1,
                 strides = 1,
                 padding = sep_padding,
+                activation = None,
+                batch_norm = False,
                 *args, **kwargs)
+
+        if batch_norm: # we batch norm first according to mobilenet paper
+            p_out = tf.nn.batch_normalization(p_out, mean=0, variance=1, offset=None,
+                                scale=None, variance_epsilon=1e-8, name='batch_norm_p')    
+
+        if activation is not None:
+            p_out = getattr(tf.nn, activation)(p_out, name=activation)
 
     return p_out
 
@@ -139,13 +148,14 @@ def depth_conv(inp,
                             padding=padding)
         
     output = tf.nn.bias_add(conv, biases, name='conv')
-    
+
+    if batch_norm: # we batch norm first according to mobilenet paper
+        output = tf.nn.batch_normalization(output, mean=0, variance=1, offset=None,
+                            scale=None, variance_epsilon=1e-8, name='batch_norm')    
+
     if activation is not None:
         output = getattr(tf.nn, activation)(output, name=activation)
 
-    if batch_norm:
-        output = tf.nn.batch_normalization(output, mean=0, variance=1, offset=None,
-                            scale=None, variance_epsilon=1e-8, name='batch_norm')
     return output
 
 def fc(inp,
