@@ -64,6 +64,57 @@ def conv(inp,
                             scale=None, variance_epsilon=1e-8, name='batch_norm')
     return output
 
+def conv_bnf(inp,
+         out_depth,
+         ksize=[3,3],
+         strides=[1,1,1,1],
+         padding='SAME',
+         kernel_init='xavier',
+         kernel_init_kwargs=None,
+         bias=0,
+         weight_decay=None,
+         activation='relu',
+         batch_norm=True,
+         name='conv_bnf'
+         ):
+
+    # assert out_shape is not None
+    if weight_decay is None:
+        weight_decay = 0.
+    if isinstance(ksize, int):
+        ksize = [ksize, ksize]
+    if kernel_init_kwargs is None:
+        kernel_init_kwargs = {}
+    in_depth = inp.get_shape().as_list()[-1]
+
+    # weights
+    init = initializer(kernel_init, **kernel_init_kwargs)
+    kernel = tf.get_variable(initializer=init,
+                            shape=[ksize[0], ksize[1], in_depth, out_depth],
+                            dtype=tf.float32,
+                            regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+                            name='weights')
+    init = initializer(kind='constant', value=bias)
+    biases = tf.get_variable(initializer=init,
+                            shape=[out_depth],
+                            dtype=tf.float32,
+                            regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+                            name='bias')
+    # ops
+    conv = tf.nn.conv2d(inp, kernel,
+                        strides=strides,
+                        padding=padding)
+    output = tf.nn.bias_add(conv, biases, name=name)
+
+    if batch_norm:
+        output = tf.nn.batch_normalization(output, mean=0, variance=1, offset=None,
+                            scale=None, variance_epsilon=1e-8, name='batch_norm')
+
+    if activation is not None:
+        output = getattr(tf.nn, activation)(output, name=activation)
+
+    return output
+
 def depthsep_conv(inp,
              out_depth,
              multiplier=1,
@@ -84,21 +135,13 @@ def depthsep_conv(inp,
                 *args, **kwargs)
 
     with tf.variable_scope('pointwise_conv'):
-        p_out = conv(d_out, out_depth = out_depth,
+        # we batch norm first according to mobilenet paper
+        p_out = conv_bnf(d_out, out_depth = out_depth,
                 ksize = 1,
                 strides = 1,
                 padding = sep_padding,
-                activation = None,
-                batch_norm = False,
                 *args, **kwargs)
-
-        if batch_norm: # we batch norm first according to mobilenet paper
-            p_out = tf.nn.batch_normalization(p_out, mean=0, variance=1, offset=None,
-                                scale=None, variance_epsilon=1e-8, name='batch_norm_p')    
-
-        if activation is not None:
-            p_out = getattr(tf.nn, activation)(p_out, name=activation)
-
+        
     return p_out
 
 def depth_conv(inp,
