@@ -84,6 +84,9 @@ def conv_bnf(inp,
         weight_decay = 0.
     if isinstance(ksize, int):
         ksize = [ksize, ksize]
+    if isinstance(strides, int):
+        strides = [1, strides, strides, 1]
+        
     if kernel_init_kwargs is None:
         kernel_init_kwargs = {}
     in_depth = inp.get_shape().as_list()[-1]
