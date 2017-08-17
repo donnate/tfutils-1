@@ -104,8 +104,7 @@ def conv_bnf(inp,
                         padding=padding)
 
     if batch_norm:
-        with tf.variable_scope('batch_norm'):
-            output = tf.layers.batch_normalization(conv, training=train_bn, trainable=True)
+        output = tf.contrib.layers.batch_norm(conv, center=True, scale=True, decay=0.9997, epsilon=0.001, is_training=train_bn, trainable=True)
     else:
         init = initializer(kind='constant', value=bias)
         biases = tf.get_variable(initializer=init,
@@ -198,8 +197,7 @@ def depth_conv(inp,
                             padding=padding)
         
     if batch_norm:
-        with tf.variable_scope('batch_norm'):
-            output = tf.layers.batch_normalization(conv, training=train_bn, trainable=True)
+        output = tf.contrib.layers.batch_norm(conv, center=True, scale=True, decay=0.9997, epsilon=0.001, is_training=train_bn, trainable=True)
     else:
         init = initializer(kind='constant', value=bias)
         biases = tf.get_variable(initializer=init,
