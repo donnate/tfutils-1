@@ -73,8 +73,9 @@ def conv_bnf(inp,
          kernel_init_kwargs=None,
          bias=0,
          weight_decay=None,
-         activation='relu',
+         activation='relu6',
          batch_norm=True,
+         train_bn=True,
          name='conv_bnf'
          ):
 
@@ -94,21 +95,23 @@ def conv_bnf(inp,
                             dtype=tf.float32,
                             regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                             name='weights')
-    init = initializer(kind='constant', value=bias)
-    biases = tf.get_variable(initializer=init,
-                            shape=[out_depth],
-                            dtype=tf.float32,
-                            regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
-                            name='bias')
+
     # ops
     conv = tf.nn.conv2d(inp, kernel,
                         strides=strides,
                         padding=padding)
-    output = tf.nn.bias_add(conv, biases, name=name)
 
     if batch_norm:
-        output = tf.nn.batch_normalization(output, mean=0, variance=1, offset=None,
-                            scale=None, variance_epsilon=1e-8, name='batch_norm')
+        with tf.variable_scope('batch_norm'):
+            output = tf.layers.batch_normalization(conv, training=train_bn, trainable=True)
+    else:
+        init = initializer(kind='constant', value=bias)
+        biases = tf.get_variable(initializer=init,
+                                shape=[out_depth],
+                                dtype=tf.float32,
+                                regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+                                name='bias')
+        output = tf.nn.bias_add(conv, biases, name=name)
 
     if activation is not None:
         output = getattr(tf.nn, activation)(output, name=activation)
@@ -123,6 +126,7 @@ def depthsep_conv(inp,
              dep_padding='SAME',
              sep_padding='SAME',
              batch_norm = True,
+             train_bn=True,
              *args,
              **kwargs
              ):
@@ -132,6 +136,8 @@ def depthsep_conv(inp,
                 ksize = ksize,
                 strides = strides,
                 padding = dep_padding,
+                batch_norm = batch_norm,
+                train_bn = train_bn,
                 *args, **kwargs)
 
     with tf.variable_scope('pointwise_conv'):
@@ -140,6 +146,8 @@ def depthsep_conv(inp,
                 ksize = 1,
                 strides = 1,
                 padding = sep_padding,
+                batch_norm = batch_norm,
+                train_bn = train_bn,
                 *args, **kwargs)
         
     return p_out
@@ -152,9 +160,10 @@ def depth_conv(inp,
              kernel_init='xavier',
              kernel_init_kwargs=None,
              bias=1,
-             activation='relu',
+             activation='relu6',
              weight_decay=None,
-             batch_norm = True
+             batch_norm = True,
+             train_bn=True
              ):
 
     # assert out_shape is not None
@@ -179,22 +188,22 @@ def depth_conv(inp,
                             dtype=tf.float32,
                             regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                             name='weights')
-    init = initializer(kind='constant', value=bias)
-    biases = tf.get_variable(initializer=init,
-                            shape=[out_depth],
-                            dtype=tf.float32,
-                            regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
-                            name='bias')
 
     conv = tf.nn.depthwise_conv2d(inp, kernel,
                             strides=strides,
                             padding=padding)
         
-    output = tf.nn.bias_add(conv, biases, name='conv')
-
-    if batch_norm: # we batch norm first according to mobilenet paper
-        output = tf.nn.batch_normalization(output, mean=0, variance=1, offset=None,
-                            scale=None, variance_epsilon=1e-8, name='batch_norm')    
+    if batch_norm:
+        with tf.variable_scope('batch_norm'):
+            output = tf.layers.batch_normalization(conv, training=train_bn, trainable=True)
+    else:
+        init = initializer(kind='constant', value=bias)
+        biases = tf.get_variable(initializer=init,
+                                shape=[out_depth],
+                                dtype=tf.float32,
+                                regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+                                name='bias')
+        output = tf.nn.bias_add(conv, biases, name=name)   
 
     if activation is not None:
         output = getattr(tf.nn, activation)(output, name=activation)
