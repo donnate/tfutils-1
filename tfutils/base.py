@@ -285,9 +285,28 @@ class DBInterface(object):
         tf_saver = self.tf_saver
         if self.do_restore:
             if self.from_ckpt is not None:
-                ckpt_filename = self.from_ckpt
-                restore_vars = self.get_restore_vars(ckpt_filename)
-                tf_saver_restore = tf.train.Saver(restore_vars)
+                if self.load_param_dict is None:
+                    ckpt_filename = self.from_ckpt
+                    restore_vars = self.get_restore_vars(ckpt_filename)
+                    if self.load_step is False:
+                        restore_vars = [restore_var for restore_var in restore_vars if 'global_step' not in restore_var.name] 
+                    log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
+                    tf_saver_restore = tf.train.Saver(restore_vars)
+                else:
+                    all_variables = tf.global_variables() + tf.local_variables()
+                    # associate values with actual variables
+                    load_var_dict = {}
+                    for key, value in self.load_param_dict.items():
+                        for var in all_variables:
+                            if var.name.split(':')[0] == value:
+                               load_var_dict[key] = var
+                               break 
+                    if self.load_step is False:
+                        load_var_dict = {k:v for k,v in load_var_dict.items() if 'global_step' not in v.name}
+                    restore_vars = list(load_var_dict.values()) 
+                    log.info('Restored Vars:\n'+str([restore_var.name for restore_var in restore_vars]))
+                    tf_saver_restore = tf.train.Saver(load_var_dict) 
+
                 log.info('Restoring variables from checkpoint %s ...' %ckpt_filename)
                 tf_saver_restore.restore(self.sess, ckpt_filename)
                 log.info('... done restoring.')
