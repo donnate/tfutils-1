@@ -6,7 +6,6 @@ from contextlib import contextmanager
 
 import tensorflow as tf
 
-
 def initializer(kind='xavier', *args, **kwargs):
     if kind == 'xavier':
         init = tf.contrib.layers.xavier_initializer(*args, **kwargs)
@@ -130,6 +129,7 @@ def depthsep_conv(inp,
              sep_padding='SAME',
              batch_norm = True,
              train_bn=True,
+             name='depthsep_conv',
              *args,
              **kwargs
              ):
@@ -166,7 +166,8 @@ def depth_conv(inp,
              activation='relu6',
              weight_decay=None,
              batch_norm = True,
-             train_bn=True
+             train_bn=True,
+             name='depth_conv'
              ):
 
     # assert out_shape is not None
@@ -280,7 +281,7 @@ class ConvNet(object):
 
     INTERNAL_FUNC = ['arg_scope', '_func_wrapper', '_val2list', 'layer',
                      '_reuse_scope_name', '__call__', '_get_func']
-    CUSTOM_FUNC = [conv, fc, global_pool]
+    CUSTOM_FUNC = [conv, fc, global_pool, conv_bnf, depthsep_conv, depth_conv]
 
     def __init__(self, defaults=None, name=None):
         """

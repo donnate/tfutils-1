@@ -285,8 +285,8 @@ class DBInterface(object):
         tf_saver = self.tf_saver
         if self.do_restore:
             if self.from_ckpt is not None:
+                ckpt_filename = self.from_ckpt
                 if self.load_param_dict is None:
-                    ckpt_filename = self.from_ckpt
                     restore_vars = self.get_restore_vars(ckpt_filename)
                     if self.load_step is False:
                         restore_vars = [restore_var for restore_var in restore_vars if 'global_step' not in restore_var.name] 
