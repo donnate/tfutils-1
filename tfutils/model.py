@@ -187,7 +187,7 @@ def depth_conv(inp,
     # weights
     init = initializer(kernel_init, **kernel_init_kwargs)
     kernel = tf.get_variable(initializer=init,
-                            shape=[ksize[0], ksize[1], in_depth, out_depth],
+                            shape=[ksize[0], ksize[1], in_depth, multiplier],
                             dtype=tf.float32,
                             regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                             name='weights')
