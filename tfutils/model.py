@@ -274,12 +274,17 @@ def global_pool(inp, kind='avg', name=None):
     output = tf.reshape(out, [out.get_shape().as_list()[0], -1], name=name)
     return output
 
+def avg_pool2d(inp, kernel_size, stride=2, padding='VALID', name=None):
+    if name is None:
+        name = 'avg_pool2d'
+    output = tf.contrib.layers.avg_pool2d(inp, kernel_size=kernel_size, stride=stride, padding=padding)
+    return output
 
 class ConvNet(object):
 
     INTERNAL_FUNC = ['arg_scope', '_func_wrapper', '_val2list', 'layer',
                      '_reuse_scope_name', '__call__', '_get_func']
-    CUSTOM_FUNC = [conv, fc, global_pool, conv_bnf, depthsep_conv, depth_conv]
+    CUSTOM_FUNC = [conv, fc, global_pool, conv_bnf, depthsep_conv, depth_conv, avg_pool2d]
 
     def __init__(self, defaults=None, name=None):
         """
