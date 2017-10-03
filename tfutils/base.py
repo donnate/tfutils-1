@@ -258,7 +258,7 @@ class DBInterface(object):
                                           self.collname,
                                           self.exp_id)
         else:
-            self.cache_dir = cache_dir
+            self.cache_dir = os.path.join(cache_dir, '%s:%d' % (self.host, self.port), self.dbname, self.collname, self.exp_id)
         if not os.path.isdir(self.cache_dir):
             os.makedirs(self.cache_dir)
 
