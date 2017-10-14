@@ -1842,12 +1842,19 @@ def parse_params(mode,
                 # Parse training data params (minibatching).
                 if 'minibatch_size' not in param:
                     param['num_minibatches'] = 1
-                    param['minibatch_size'] = param['queue_params']['batch_size']
+                    if not isinstance(param['queue_params'], list):
+                        param['minibatch_size'] = param['queue_params']['batch_size']
+                    else:
+                        param['minibatch_size'] = param['queue_params'][0]['batch_size']
+
                     log.info('minibatch_size not specified for training data_params... ' +
                              'Defaulting minibatch_size to: {} (identical to the batch size).'
-                             .format(param['queue_params']['batch_size']))
+                             .format(param['minibatch_size']))
                 else:
-                    batch_size = param['queue_params']['batch_size']
+                    if not isinstance(param['queue_params'], list):
+                        batch_size = param['queue_params']['batch_size']
+                    else:
+                        batch_size = param['queue_params'][0]['batch_size']
                     minibatch_size = param['minibatch_size']
                     assert minibatch_size <= batch_size, (
                            'Minibatch size cannot be larger than batch size.')
@@ -1862,7 +1869,11 @@ def parse_params(mode,
                                  .format(minibatch_size))
                     param['minibatch_size'] = minibatch_size
                     param['num_minibatches'] = num_minibatches
-                    param['queue_params']['batch_size'] = minibatch_size
+                    if not isinstance(param['queue_params'], list):
+                        param['queue_params']['batch_size'] = minibatch_size
+                    else:
+                        for tmp_queue_params in param['queue_params']:
+                            tmp_queue_params['batch_size'] = minibatch_size
 
         params[name] = param_list
 

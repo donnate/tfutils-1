@@ -208,7 +208,8 @@ def sonify(arg, memo=None, skip=False):
     elif isinstance(arg, datetime.datetime):
         rval = arg
     elif isinstance(arg, DType):
-        rval = arg
+        #rval = arg
+        rval = str(arg)
     elif isinstance(arg, np.floating):
         rval = float(arg)
     elif isinstance(arg, np.integer):
