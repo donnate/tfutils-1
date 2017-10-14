@@ -1556,9 +1556,23 @@ def get_model(inputs, model_params, param=None, trarg=None):
 
                     tf.get_variable_scope().reuse_variables()
 
-                    grad = optimizer_base.compute_gradients(loss)
-                    tower_losses.append(loss)
-                    tower_grads.append(grad)
+                    if not isinstance(loss, dict):
+                        grad = optimizer_base.compute_gradients(loss)
+                        tower_losses.append(loss)
+                        tower_grads.append(grad)
+
+                    else:
+                        if isinstance(tower_losses, list):
+                            tower_losses = {}
+                            tower_grads = {}
+
+                        for loss_key, loss_value in loss.iteritems():
+                            if not loss_key in tower_losses:
+                                tower_losses[loss_key] = []
+                                tower_grads[loss_key] = []
+                            grad = optimizer_base.compute_gradients(loss_value)
+                            tower_losses[loss_key].append(loss_value)
+                            tower_grads[loss_key].append(grad)
 
     # Gather and aggregate outputs on the host (CPU).
     output = aggregate_outputs(tower_outputs)
