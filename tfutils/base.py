@@ -592,7 +592,8 @@ class DBInterface(object):
         if len(train_res) > 0:
             # TODO: also include error rate of the train set to monitor overfitting
             message = 'Step {} ({:.0f} ms) -- '.format(step, 1000 * duration)
-            msg2 = ['{}: {:.4f}'.format(k, v) for k, v in train_res.items()
+            #msg2 = ['{}: {:.4f}'.format(k, v) for k, v in train_res.items()
+            msg2 = ['{}: {:.4f}'.format(k, v) if not isinstance(v, str) else '{}: {}'.format(k, v) for k, v in train_res.items()
                     if k not in ['optimizer', '__grads__'] and k not in self.save_to_gfs]
             message += ', '.join(msg2)
             log.info(message)
@@ -1584,10 +1585,10 @@ def get_model(inputs, model_params, param=None, trarg=None):
                                                   param['optimizer_params'])
 
         # Distribute graph across desired devices.
-        for device, input in zip(devices, inputs):
+        for device, curr_input in zip(devices, inputs):
             with tf.device(device), tf.name_scope('__GPU__' + device[-1]):
 
-                model_params, output = get_model_base(input, **model_params)
+                model_params, output = get_model_base(curr_input, **model_params)
                 tower_outputs.append(output)
 
                 tf.get_variable_scope().reuse_variables()
@@ -1596,7 +1597,7 @@ def get_model(inputs, model_params, param=None, trarg=None):
                 if model_params['train']:
 
                     (param['loss_params'],
-                     loss) = get_loss(input, output, **param['loss_params'])
+                     loss) = get_loss(curr_input, output, **param['loss_params'])
 
                     tf.get_variable_scope().reuse_variables()
 
@@ -1606,6 +1607,8 @@ def get_model(inputs, model_params, param=None, trarg=None):
                         tower_grads.append(grad)
 
                     else:
+                        # When loss returned is a dict, grads will also be computed towards each loss
+
                         if isinstance(tower_losses, list):
                             tower_losses = {}
                             tower_grads = {}
@@ -1627,19 +1630,30 @@ def get_model(inputs, model_params, param=None, trarg=None):
         if param['train_params'].get('targets') is not None:
             ttargs = copy.deepcopy(param['train_params']['targets'])
             ttargs_func = ttargs.pop('func')
-            ttarg = ttargs_func(input, output, **ttargs)
+            ttarg = ttargs_func(inputs, output, **ttargs)
             trarg['train_targets'].update(ttarg)
 
-        # Aggregate loss.
-        loss = tf.reduce_mean(tf.stack(tower_losses))
+        if isinstance(tower_losses, list):
+            # Aggregate loss.
+            loss = tf.reduce_mean(tf.stack(tower_losses))
 
-        # Aggregate and accumulate gradients.
-        minibatch_grads = optimizer_base.aggregate_gradients(tower_grads)
-        mini_flag, grads = optimizer_base.accumulate_gradients(minibatch_grads, trarg['num_minibatches'])
-        #grads = minibatch_grads
+            # Aggregate and accumulate gradients.
+            minibatch_grads = optimizer_base.aggregate_gradients(tower_grads)
+            mini_flag, grads = optimizer_base.accumulate_gradients(minibatch_grads, trarg['num_minibatches'])
+            #grads = minibatch_grads
 
-        # Apply accumulated gradients.
-        optimizer = optimizer_base.apply_gradients(grads, trarg['global_step'])
+            # Apply accumulated gradients.
+            optimizer = optimizer_base.apply_gradients(grads, trarg['global_step'])
+        else:
+            loss = {}
+            mini_flag = {}
+            optimizer = {}
+
+            for loss_key in tower_losses:
+                loss[loss_key] = tf.reduce_mean(tf.stack(tower_losses[loss_key]))
+                minibatch_grads = optimizer_base.aggregate_gradients(tower_grads[loss_key])
+                mini_flag[loss_key], grads = optimizer_base.accumulate_gradients(minibatch_grads, trarg['num_minibatches'])
+                optimizer[loss_key] = optimizer_base.apply_gradients(grads, trarg['global_step'])
 
         # Prepare train_targets
         if 'loss' not in trarg['train_targets']:

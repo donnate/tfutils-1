@@ -65,6 +65,11 @@ class ClipOptimizer(object):
         for grads_and_vars in zip(*tower_grads):
             # print(grads_and_vars)
             grads = []
+
+            if grads_and_vars[0][0] is None:
+                average_grads.append((grads_and_vars[0][0], grads_and_vars[0][1]))
+                continue
+
             for g, _ in grads_and_vars:
                 # print(g.get_shape().as_list(), g)
                 grads.append(tf.expand_dims(g, axis=0))
@@ -74,6 +79,7 @@ class ClipOptimizer(object):
             var = grads_and_vars[0][1]
             grad_and_var = (grad, var)
             average_grads.append(grad_and_var)
+
         return average_grads
 
     def accumulate_gradients(self, minibatch_grads, num_minibatches=1):
@@ -96,12 +102,22 @@ class ClipOptimizer(object):
         #grads = [(gv[0].assign_add(tf.divide(mgv[0], num_minibatches)), gv[1])
         #         for (gv, mgv) in zip(self.grads_and_vars, minibatch_grads)]
         #grads = tf.cond(tf.less(self.mini_flag[0], 0.5), fn1 = lambda: _add_op(), fn2 = lambda: _set_op())
-        grads = [tf.cond(tf.less(self.mini_flag[0], 0.5), fn1 = lambda: _set_op(gv[0], mgv[0]), fn2 = lambda: _add_op(gv[0], mgv[0]))
+        only_grads = [tf.cond(tf.less(self.mini_flag[0], 0.5), fn1 = lambda: _set_op(gv[0], mgv[0]), fn2 = lambda: _add_op(gv[0], mgv[0])) if not mgv[0] is None else None
                  for (gv, mgv) in zip(self.grads_and_vars, minibatch_grads)]
-        with tf.control_dependencies(grads):
+        only_grads_without_None = []
+        for curr_value in only_grads:
+            if not curr_value is None:
+                only_grads_without_None.append(curr_value)
+
+        with tf.control_dependencies(only_grads_without_None):
             self.mini_flag = tf.assign(self.mini_flag, tf.constant([1], dtype = tf.float32))
-        grads = [(only_grad, gv[1])
-                 for (gv, only_grad) in zip(self.grads_and_vars, grads)]
+
+        grads = []
+        for (gv, only_grad) in zip(self.grads_and_vars, only_grads):
+            if not only_grad is None:
+                grads.append((only_grad, gv[1]))
+        #grads = [(only_grad, gv[1]) if not only_grad is None
+        #         for (gv, only_grad) in zip(self.grads_and_vars, grads)]
         return self.mini_flag, grads
 
     def apply_gradients(self, grads_and_vars, global_step=None):
