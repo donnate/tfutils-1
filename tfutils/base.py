@@ -1356,7 +1356,8 @@ def train_from_params(save_params,
             all_vars = variables._all_saveable_objects()
             var_list = strip_prefix(prefix, all_vars)
             for var in var_list:
-                print(var)
+                #print(var)
+                pass
 
             trarg['dbinterface'] = DBInterface(sess=sess,
                                                params=param,
