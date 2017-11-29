@@ -875,6 +875,7 @@ def train_from_params(save_params,
                       load_params=None,
                       dont_run=False,
                       inter_op_parallelism_threads=40,
+                      target='', # target for tf session
                       ):
     """
     Main training interface function.
@@ -1082,9 +1083,9 @@ def train_from_params(save_params,
         queues.extend(vqueues)
 
         # create session
-        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-            log_device_placement=log_device_placement,
-            inter_op_parallelism_threads=inter_op_parallelism_threads))
+        sess = tf.Session(target, config=tf.ConfigProto(allow_soft_placement=True,
+                                                        log_device_placement=log_device_placement,
+                                                        inter_op_parallelism_threads=inter_op_parallelism_threads))
 
         params = {'save_params': save_params,
                   'load_params': load_params,
