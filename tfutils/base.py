@@ -1576,11 +1576,11 @@ def get_model(inputs, model_params, param=None, trarg=None):
         if param['train_params'].get('targets') is not None:
             ttargs = copy.deepcopy(param['train_params']['targets'])
             ttargs_func = ttargs.pop('func')
-            ttarg = ttargs_func(input, output, **ttargs)
+            ttarg = ttargs_func(input, output, tower_losses, **ttargs)
             trarg['train_targets'].update(ttarg)
 
         # Aggregate loss.
-        loss = tf.reduce_mean(tf.stack(tower_losses))
+#        loss = tf.reduce_mean(tf.stack(tower_losses))
 
         # Aggregate and accumulate gradients.
         minibatch_grads = optimizer_base.aggregate_gradients(tower_grads)
@@ -1591,8 +1591,8 @@ def get_model(inputs, model_params, param=None, trarg=None):
         optimizer = optimizer_base.apply_gradients(grads, trarg['global_step'])
 
         # Prepare train_targets
-        if 'loss' not in trarg['train_targets']:
-            trarg['train_targets']['loss'] = loss
+#        if 'loss' not in trarg['train_targets']:
+#            trarg['train_targets']['loss'] = loss
         if '__grads__' not in trarg['train_targets']:
             trarg['train_targets']['__grads__'] = mini_flag
             pass
