@@ -66,6 +66,7 @@ DEFAULT_LOG_DEVICE_PLACEMENT = False
 DEFAULT_INTER_OP_PARALLELISM_THREADS = 40
 DEFAULT_TRAIN_NUM_STEPS = None
 DEFAULT_TRAIN_THRES_LOSS = 100
+DEFAULT_TRAIN_QUEUE_RESTART = 1000000
 
 DEFAULT_HOST = '/cpu:0'
 DEFAULT_DEVICES = ['/gpu:0', '/gpu:1', '/gpu:2', '/gpu:3']
@@ -1009,6 +1010,7 @@ def train(sess,
           num_minibatches=1,
           num_steps=float('inf'),
           thres_loss=DEFAULT_TRAIN_THRES_LOSS,
+          queue_restart=DEFAULT_TRAIN_QUEUE_RESTART,
           validate_first=True,
           validation_targets=None):
     """Actually runs the training evaluation loop.
@@ -1038,6 +1040,7 @@ def train(sess,
         'queues': queues,
         'num_steps': num_steps,
         'thres_loss': thres_loss,
+        'queue_restart': queue_restart,
         'train_loop': train_loop,
         'global_step': global_step,
         'dbinterface': dbinterface,
@@ -1100,6 +1103,12 @@ def train(sess,
             trarg['dbinterface'].save(train_res=train_res,
                                       valid_res=valid_res,
                                       validation_only=False)
+
+            if step%trarg['queue_restart']==0:
+                stop_queues(sess, trarg['queues'], trarg['coord'], trarg['threads'])
+                log.info('Restarting queues...')
+                trarg['coord'], trarg['threads'] = start_queues(sess)
+
 
         steps = [t['global_step'].eval(session=sess) for t in trargs]
 
@@ -1846,6 +1855,10 @@ def parse_params(mode,
                     param['thres_loss'] = DEFAULT_TRAIN_THRES_LOSS
                     log.info('thres_loss not specified for model {}... '.format(model_num) +
                              'Defaulting thres_loss to: {}.'.format(DEFAULT_TRAIN_THRES_LOSS))
+                if 'queue_restart' not in param:
+                    param['queue_restart'] = DEFAULT_TRAIN_QUEUE_RESTART
+                    log.info('queue_restart not specified for model {}... '.format(model_num) +
+                             'Defaulting queue_restart to: {}.'.format(DEFAULT_TRAIN_QUEUE_RESTART))
                 if 'train_loop' not in param:
                     param['train_loop'] = {'func': train_loop}
                     log.info('train_loop not specified for model {}... '.format(model_num) +
@@ -1929,6 +1942,7 @@ def parse_params(mode,
             'train_targets': [dict() for _ in range(num_models)],
             'num_steps': [p['num_steps'] for p in params['train_params']],
             'thres_loss': [p['thres_loss'] for p in params['train_params']],
+            'queue_restart': [p['queue_restart'] for p in params['train_params']],
             'train_loop': [p['train_loop']['func'] for p in params['train_params']],
             'validate_first': [p['validate_first'] for p in params['train_params']],
             'num_minibatches': [p['num_minibatches'] for p in params['train_params']]})
