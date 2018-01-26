@@ -83,6 +83,7 @@ DEFAULT_OPTIMIZER_PARAMS = frozendict({'optimizer_class': tf.train.MomentumOptim
 
 DEFAULT_SAVE_PARAMS = frozendict({'save_metrics_freq': 100,
                                   'save_valid_freq': 3000,
+                                  'cache_max_num': 6,
                                   'cache_filters_freq': 3000,
                                   'save_filters_freq': 30000,
                                   'save_initial_filters': True,
@@ -165,6 +166,8 @@ class DBInterface(object):
                     - cache_filters_freq (int, default: 3000)
                         How often to cache filter values locally and save
                         to ___RECENT database
+                    - cache_max_num (int, default: 6)
+                        Maximal number of cached filters to keep in __RECENT database
                     - cache_dir (str, default: None)
                         Path where caches will be saved locally. If None, will default to
                         ~/.tfutils/<host:post>/<dbname>/<collname>/<exp_id>.
@@ -239,7 +242,7 @@ class DBInterface(object):
         if 'query' in load_params and not load_params['query'] is None and 'exp_id' in load_params['query']:
             self.sameloc = self.sameloc & (load_params['query']['exp_id'] == self.exp_id)
 
-        for _k in ['do_save', 'save_metrics_freq', 'save_valid_freq', 'cache_filters_freq',
+        for _k in ['do_save', 'save_metrics_freq', 'save_valid_freq', 'cache_filters_freq', 'cache_max_num',
                    'save_filters_freq', 'save_initial_filters', 'save_to_gfs']:
             setattr(self, _k, save_params.get(_k, DEFAULT_SAVE_PARAMS[_k]))
 
@@ -287,7 +290,9 @@ class DBInterface(object):
         self.load_collfs_recent = gridfs.GridFS(
             self.load_conn[load_recent_name])
 
-        if 'cache_dir' in save_params:
+        if (save_params == {}) and ('cache_dir' in load_params): # use cache_dir from load params if save_params not given
+            cache_dir = load_params['cache_dir']
+        elif 'cache_dir' in save_params:
             cache_dir = save_params['cache_dir']
         else:
             cache_dir = None
@@ -708,6 +713,19 @@ class DBInterface(object):
                     outrec = putfs.put(_fp, filename=saved_path, **save_rec)
             log.info('... done putting filters into database.')
 
+            if not save_filters_permanent:
+                recent_gridfs_files = self.collfs_recent._GridFS__files
+                recent_query_result = recent_gridfs_files.find({'saved_filters': True}, sort=[('uploadDate', 1)])
+                num_cached_filters = recent_query_result.count()
+                cache_max_num = self.cache_max_num
+                if num_cached_filters > cache_max_num:
+                    log.info('Cleaning up cached filters')
+                    fsbucket = gridfs.GridFSBucket(recent_gridfs_files._Collection__database, bucket_name=recent_gridfs_files.name.split('.')[0])
+
+                    for del_indx in xrange(0, num_cached_filters - cache_max_num):
+                        #log.info(recent_query_result[del_indx]['uploadDate'])
+                        fsbucket.delete(recent_query_result[del_indx]['_id'])
+
         if not save_filters_permanent:
             save_rec['saved_filters'] = False
             log.info('Inserting record into database.')
@@ -917,6 +935,11 @@ def test_from_params(load_params,
 
         # Build a graph for each distinct model.
         for param, ttarg in zip(_params, _ttargs):
+
+            if not 'cache_dir' in load_params:
+                temp_cache_dir = save_params.get('cache_dir', None)
+                load_params['cache_dir'] = temp_cache_dir
+                log.info('cache_dir not found in load_params, using cache_dir ({}) from save_params'.format(temp_cache_dir))
 
             ttarg['dbinterface'] = DBInterface(params=param, load_params=param['load_params'])
             ttarg['dbinterface'].load_rec()

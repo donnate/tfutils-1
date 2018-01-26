@@ -25,6 +25,8 @@ def conv(inp,
          weight_decay=None,
          activation='relu',
          batch_norm=True,
+         dropout=None,
+         dropout_seed=0,
          name='conv'
          ):
 
@@ -51,6 +53,9 @@ def conv(inp,
                             regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                             name='bias')
     # ops
+    if dropout is not None:
+        inp = tf.nn.dropout(inp, dropout, seed=dropout_seed, name='dropout')
+
     conv = tf.nn.conv2d(inp, kernel,
                         strides=strides,
                         padding=padding)
@@ -221,7 +226,7 @@ def fc(inp,
        activation='relu',
        batch_norm=True,
        dropout=None,
-       dropout_seed=None,
+       dropout_seed=0,
        name='fc'):
 
     if weight_decay is None:
@@ -247,6 +252,8 @@ def fc(inp,
                             name='bias')
 
     # ops
+    if dropout is not None:
+        resh = tf.nn.dropout(resh, dropout, seed=dropout_seed, name='dropout')
     fcm = tf.matmul(resh, kernel)
     output = tf.nn.bias_add(fcm, biases, name=name)
 
@@ -255,12 +262,10 @@ def fc(inp,
     if batch_norm:
         output = tf.nn.batch_normalization(output, mean=0, variance=1, offset=None,
                             scale=None, variance_epsilon=1e-8, name='batch_norm')
-    if dropout is not None:
-        output = tf.nn.dropout(output, dropout, seed=dropout_seed, name='dropout')
     return output
 
 
-def global_pool(inp, kind='avg', name=None):
+def global_pool(inp, kind='avg', keep_dims=False, name=None):
     if kind not in ['max', 'avg']:
         raise ValueError('Only global avg or max pool is allowed, but'
                             'you requested {}.'.format(kind))
@@ -271,7 +276,11 @@ def global_pool(inp, kind='avg', name=None):
                                     ksize=[1,h,w,1],
                                     strides=[1,1,1,1],
                                     padding='VALID')
-    output = tf.reshape(out, [out.get_shape().as_list()[0], -1], name=name)
+    if keep_dims:
+        output = tf.identity(out, name=name)
+    else:
+        output = tf.reshape(out, [out.get_shape().as_list()[0], -1], name=name)
+        
     return output
 
 def avg_pool2d(inp, kernel_size, stride=2, padding='VALID', name=None):
