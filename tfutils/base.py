@@ -1127,10 +1127,12 @@ def train(sess,
                                       valid_res=valid_res,
                                       validation_only=False)
 
+            '''
             if step%trarg['queue_restart']==0:
                 stop_queues(sess, trarg['queues'], trarg['coord'], trarg['threads'])
                 log.info('Restarting queues...')
                 trarg['coord'], trarg['threads'] = start_queues(sess)
+            '''
 
 
         steps = [t['global_step'].eval(session=sess) for t in trargs]
@@ -1879,6 +1881,7 @@ def parse_params(mode,
                     log.info('thres_loss not specified for model {}... '.format(model_num) +
                              'Defaulting thres_loss to: {}.'.format(DEFAULT_TRAIN_THRES_LOSS))
                 if 'queue_restart' not in param:
+                    # Not used now
                     param['queue_restart'] = DEFAULT_TRAIN_QUEUE_RESTART
                     log.info('queue_restart not specified for model {}... '.format(model_num) +
                              'Defaulting queue_restart to: {}.'.format(DEFAULT_TRAIN_QUEUE_RESTART))
