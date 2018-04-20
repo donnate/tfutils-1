@@ -364,6 +364,7 @@ class DBInterface(object):
                 unrestored_vars = [var for name, var in self.all_vars.items() if name not in restore_names]
                 unrestored_var_names = [name for name, var in self.all_vars.items() if name not in restore_names]
                 log.info('Unrestored Vars:\n' + str(unrestored_var_names))
+                log.info('All trainable vars:\n'+str([var.name for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)]))
                 self.sess.run(tf.variables_initializer(unrestored_vars))  # initialize variables not restored
                 assert len(self.sess.run(tf.report_uninitialized_variables())) == 0, (
                     self.sess.run(tf.report_uninitialized_variables()))

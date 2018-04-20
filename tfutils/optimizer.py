@@ -9,6 +9,7 @@ gradients for multiple batches before applying a gradient update).
 import copy
 import tensorflow as tf
 import logging
+import pdb
 
 logging.basicConfig()
 log = logging.getLogger('tfutils')
