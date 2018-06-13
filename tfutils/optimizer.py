@@ -141,7 +141,10 @@ class ClipOptimizer(object):
         """
         self.mini_flag = tf.assign(self.mini_flag, tf.constant([0], dtype = tf.float32))
         # grads_and_vars = self.aggregate_gradients(grads_and_vars, method='average')
-        with tf.control_dependencies([self.mini_flag]):
+
+        # Do the update ops
+        extra_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies([self.mini_flag] + extra_ops):
             optimize = self._optimizer.apply_gradients(grads_and_vars,
                                                        global_step=global_step)
         #return [optimize, self.zero_grad()]
