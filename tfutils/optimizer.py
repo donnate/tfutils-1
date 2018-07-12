@@ -105,7 +105,7 @@ class ClipOptimizer(object):
         #grads = [(gv[0].assign_add(tf.divide(mgv[0], num_minibatches)), gv[1])
         #         for (gv, mgv) in zip(self.grads_and_vars, minibatch_grads)]
         #grads = tf.cond(tf.less(self.mini_flag[0], 0.5), fn1 = lambda: _add_op(), fn2 = lambda: _set_op())
-        only_grads = [tf.cond(tf.less(self.mini_flag[0], 0.5), fn1 = lambda: _set_op(gv[0], mgv[0]), fn2 = lambda: _add_op(gv[0], mgv[0])) if not mgv[0] is None else None
+        only_grads = [tf.cond(tf.less(self.mini_flag[0], 0.5), lambda: _set_op(gv[0], mgv[0]), lambda: _add_op(gv[0], mgv[0])) if not mgv[0] is None else None
                  for (gv, mgv) in zip(self.grads_and_vars, minibatch_grads)]
         only_grads_without_None = []
         for curr_value in only_grads:
