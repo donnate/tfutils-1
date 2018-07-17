@@ -943,13 +943,18 @@ def test_from_params(load_params,
 	    if not use_ckpt:
                 ttarg['dbinterface'].load_rec()
                 ld = ttarg['dbinterface'].load_data
-                assert ld is not None, "No load data found for query, aborting"
-                ld = ld[0]
-                # TODO: have option to reconstitute model_params entirely from
-                # saved object ("revivification")
-                param['model_params']['seed'] = ld['params']['model_params']['seed']
-                cfg_final = ld['params']['model_params']['cfg_final']
-                load_queue_params = ld['params']['train_params']['queue_params']
+                #assert ld is not None, "No load data found for query, aborting"
+                if ld is None:
+		    first_targ = param['validation_params'].keys()[0]
+		    load_queue_params = param['validation_params'][first_targ]['queue_params']
+		    cfg_final = param['model_params'].get('cfg_final', {})
+                else:
+                    ld = ld[0]
+                    # TODO: have option to reconstitute model_params entirely from
+                    # saved object ("revivification")
+                    param['model_params']['seed'] = ld['params']['model_params']['seed']
+                    cfg_final = ld['params']['model_params']['cfg_final']
+                    load_queue_params = ld['params']['train_params']['queue_params']
 	    else:
 		first_targ = param['validation_params'].keys()[0]
 		load_queue_params = param['validation_params'][first_targ]['queue_params']
@@ -963,7 +968,7 @@ def test_from_params(load_params,
 
             # tf.get_variable_scope().reuse_variables()
 
-            param['load_params']['do_restore'] = True
+            #param['load_params']['do_restore'] = True
             param['model_params']['cfg_final'] = cfg_final
 
             prefix = param['model_params']['prefix'] + '/'
