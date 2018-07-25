@@ -144,6 +144,7 @@ class ParallelByFileProviderBase(DataProviderBase):
         if self.n_attrs == 1:
             fq = tf.train.string_input_producer(self.source_paths[0],
                                                 shuffle=shuffle,
+                                                capacity=len(self.source_paths[0]),
                                                 seed=shuffle_seed)
             self.file_queues = [[fq]] * self.n_threads
         else:
