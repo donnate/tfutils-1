@@ -1293,7 +1293,7 @@ def train_estimator(cls,
     if tpu_validate_first:
         eval_results = do_tpu_validation()
 
-    while current_step < train_steps:
+    while (current_step < train_steps) and (not tpu_validate_first):
         next_eval = min(current_step + steps_per_eval,
                             train_steps)
 
