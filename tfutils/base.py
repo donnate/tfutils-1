@@ -1089,7 +1089,9 @@ def train(sess,
             return
 
         log.info('Training beginning ...')
-        trarg['coord'], trarg['threads'] = start_queues(sess)
+        if queues:
+            # If includes queues, start them
+            trarg['coord'], trarg['threads'] = start_queues(sess)
 
         if step == 0:
             trarg['dbinterface'].start_time_step = time.time()
@@ -1104,7 +1106,9 @@ def train(sess,
     while any(step < num_step for (step, num_step) in zip(steps, num_steps)):
 
         start_time_step = time.time()
-        train_results = train_loop(sess, train_targets, num_minibatches=trarg['num_minibatches'])
+        train_results = train_loop(
+                sess, train_targets, 
+                num_minibatches=trarg['num_minibatches'])
 
         for (step, trarg, train_res) in zip(steps, trargs, train_results):
 
@@ -1133,7 +1137,10 @@ def train(sess,
     # Sync and close the session
     res = []
     for trarg in trargs:
-        stop_queues(sess, trarg['queues'], trarg['coord'], trarg['threads'])
+        if queues:
+            stop_queues(
+                    sess, trarg['queues'], 
+                    trarg['coord'], trarg['threads'])
         trarg['dbinterface'].sync_with_host()
         res.append(trarg['dbinterface'].outrecs)
 
@@ -1342,9 +1349,10 @@ def train_from_params(save_params,
         for param, trarg in zip(_params, _trargs):
             with tf.variable_scope(param['model_params']['prefix']):
 
-                trarg['global_step'] = tf.get_variable('global_step', [],
-                                                       dtype=tf.int64, trainable=False,
-                                                       initializer=tf.constant_initializer(0))
+                trarg['global_step'] = tf.get_variable(
+                        'global_step', [],
+                        dtype=tf.int64, trainable=False,
+                        initializer=tf.constant_initializer(0))
 
                 _, _, param, trarg = get_model(inputs,
                                                param['model_params'],
@@ -1359,13 +1367,13 @@ def train_from_params(save_params,
                 queues.extend(vqueue)
 
         # Create session.
-
-        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
         gpu_options = tf.GPUOptions(allow_growth=True)
-        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-                                                gpu_options=gpu_options,
-                                                log_device_placement=log_device_placement,
-                                                inter_op_parallelism_threads=inter_op_parallelism_threads))
+        sess = tf.Session(
+                config=tf.ConfigProto(
+                    allow_soft_placement=True,
+                    gpu_options=gpu_options,
+                    log_device_placement=log_device_placement,
+                    inter_op_parallelism_threads=inter_op_parallelism_threads))
 
         init_op_global = tf.global_variables_initializer()
         sess.run(init_op_global)
@@ -1424,7 +1432,8 @@ def get_valid_targets_dict(validation_params,
         cfg_final = model_params['cfg_final']
     assert 'seed' in model_params
     for vtarg in validation_params:
-        queue_params = validation_params[vtarg].get('queue_params', queue_params)
+        queue_params = validation_params[vtarg].get('queue_params', 
+                                                    queue_params)
         _, queue, vinputs = get_data(queue_params=queue_params,
                                      **validation_params[vtarg]['data_params'])
         queues.extend(queue)
@@ -1434,8 +1443,10 @@ def get_valid_targets_dict(validation_params,
             _mp, voutputs = get_model(vinputs, model_params)
             check_model_equivalence(_mp['cfg_final'], cfg_final, scope_name)
             tf.get_variable_scope().reuse_variables()
-        validation_params[vtarg], valid_targets_dict[vtarg] = get_validation_target(vinputs, voutputs,
-                                                                                    **validation_params[vtarg])
+        validation_params[vtarg], valid_targets_dict[vtarg] \
+                = get_validation_target(
+                        vinputs, voutputs,
+                        **validation_params[vtarg])
 
     return valid_targets_dict, queues
 
@@ -1480,27 +1491,41 @@ def get_validation_target(vinputs, voutputs,
 
 
 def get_data(func, queue_params=None, **data_params):
-    data_provider = func(**data_params)
-    input_ops = data_provider.init_ops()
-    assert len(input_ops) == data_params['n_threads'], (len(input_ops), data_params['n_threads'])
-    assert len(input_ops) > 0, len(input_ops)
-    batch_size = data_params['batch_size']
-    data_params['func'] = func
-    enqueue_ops = []
-    queue = get_queue(input_ops[0], shape_flag=batch_size!=1, **queue_params)
-    for input_op in input_ops:
-        # enqueue_ops.append(queue.enqueue_many(input_op))
-        if batch_size == 1:
-            enqueue_ops.append(queue.enqueue(input_op))
+    if queue_params:
+        # Using old queue params
+        data_provider = func(**data_params)
+        input_ops = data_provider.init_ops()
+
+        assert len(input_ops) == data_params['n_threads'], \
+                "Need to build %i loading ops! But only %i!" \
+                    %(data_params['n_threads'], len(input_ops))
+        assert len(input_ops) > 0, "No loading ops returned!"
+
+        batch_size = data_params['batch_size']
+        data_params['func'] = func
+        enqueue_ops = []
+        queue = get_queue(input_ops[0], 
+                          shape_flag=batch_size!=1, 
+                          **queue_params)
+        for input_op in input_ops:
+            # enqueue_ops.append(queue.enqueue_many(input_op))
+            if batch_size == 1:
+                enqueue_ops.append(queue.enqueue(input_op))
+            else:
+                enqueue_ops.append(queue.enqueue_many(input_op))
+        tf.train.queue_runner.add_queue_runner(
+                tf.train.queue_runner.QueueRunner(
+                    queue,
+                    enqueue_ops))
+        if queue_params['batch_size'] == 1:
+            inputs = queue.dequeue()
         else:
-            enqueue_ops.append(queue.enqueue_many(input_op))
-    tf.train.queue_runner.add_queue_runner(tf.train.queue_runner.QueueRunner(queue,
-                                                                             enqueue_ops))
-    if queue_params['batch_size'] == 1:
-        inputs = queue.dequeue()
+            inputs = queue.dequeue_many(queue_params['batch_size'])
+        return data_params, [queue], inputs
     else:
-        inputs = queue.dequeue_many(queue_params['batch_size'])
-    return data_params, [queue], inputs
+        inputs = func(**data_params)
+        data_params['func'] = func
+        return data_params, [], inputs
 
 
 def split_input(inputs, num_gpus=1):
@@ -1812,12 +1837,23 @@ def parse_params(mode,
                 # Parse training data params (minibatching).
                 if 'minibatch_size' not in param:
                     param['num_minibatches'] = 1
-                    param['minibatch_size'] = param['queue_params']['batch_size']
+                    if param['queue_params']:
+                        # If using queue, get batch_size from queue_params
+                        param['minibatch_size'] \
+                                = param['queue_params']['batch_size']
+                    else:
+                        # Else, use 'batch_size' in data_params
+                        param['minibatch_size'] \
+                                = param['data_params']['batch_size']
                     log.info('minibatch_size not specified for training data_params... ' +
                              'Defaulting minibatch_size to: {} (identical to the batch size).'
-                             .format(param['queue_params']['batch_size']))
+                             .format(param['minibatch_size']))
                 else:
-                    batch_size = param['queue_params']['batch_size']
+                    if param['queue_params']:
+                        batch_size = param['queue_params']['batch_size']
+                    else:
+                        param['minibatch_size'] \
+                                = param['data_params']['batch_size']
                     minibatch_size = param['minibatch_size']
                     assert minibatch_size <= batch_size, (
                            'Minibatch size cannot be larger than batch size.')
