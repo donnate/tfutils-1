@@ -362,6 +362,7 @@ class DBInterface(object):
                 log.info('Restored Vars:\n' + str(restore_names))
                 tf_saver_restore = tf.train.Saver(restore_vars)
                 tf_saver_restore.restore(self.sess, ckpt_filename)
+                #tf.train.export_meta_graph(filename='/mnt/fs1/mrowca/curious_model.meta')
                 log.info('... done restoring.')
 
                 # Reinitialize all other, unrestored vars.
@@ -526,7 +527,8 @@ class DBInterface(object):
         try:
             count_recent = collfs_recent.find(query).count()
         except Exception as inst:
-            raise er.OperationFailure(inst.args[0] + "\n Is your dbname too long? Mongo requires that dbnames be no longer than 64 characters.")
+            #raise er.OperationFailure(inst.args[0] + "\n Is your dbname too long? Mongo requires that dbnames be no longer than 64 characters.")
+            count_recent = 0
         if count_recent > 0:  # get latest that matches query
             ckpt_record_recent = coll_recent.find(query, sort=[('uploadDate', -1)])[0]
             # use the record with latest timestamp
@@ -602,6 +604,10 @@ class DBInterface(object):
         if len(train_res) > 0:
             # TODO: also include error rate of the train set to monitor overfitting
             message = 'Step {} ({:.0f} ms) -- '.format(step, 1000 * duration)
+            for k, v in train_res.items():
+                if k not in ['optimizer', '__grads__'] and \
+                        isinstance(v, np.ndarray) and len(v) > 1:
+                    train_res[k] = np.mean(v)
             msg2 = ['{}: {:.4f}'.format(k, v) for k, v in train_res.items()
                     if k not in ['optimizer', '__grads__'] and k not in self.save_to_gfs]
             message += ', '.join(msg2)
@@ -889,6 +895,36 @@ def test(sess,
 
     return validation_summary, res
 
+def rename_interaction_utils(data):
+    params = data['params']
+    params['model_params'] = params['agent_params']\
+            ['model_params']['cfg'].pop('him_kwargs')
+    params['model_params']['OB1'] = params['agent_params']\
+            ['model_params']['cfg']['object_ids'][0]
+    params['model_params']['OB2'] = params['agent_params']\
+            ['model_params']['cfg']['object_ids'][1]
+    params['model_params']['seed'] = 0
+    params['model_params']['num_gpus'] = 1
+    params['model_params']['devices'] = ['/gpu:0']
+    params['model_params']['dynamic_group'] = False
+    params['model_params']['prefix'] = "" #check strip
+    params['model_params']['stats_file'] = ""
+    params['model_params']['group_file'] = ['/mnt/fs1/chengxuz/Dataset/5231_world_dataset/group_result_km6_aaad_sd0.pkl']
+    params['model_params']['group_rand_num'] = ""
+    params['model_params']['static_path'] = ['/mnt/fs1/datasets/5231_world_dataset/static_particles.pkl']
+    params['model_params']['train'] = True
+    params['model_params']['cfg'] = \
+            params['agent_params']['model_params']['cfg']['him_cfg']
+    params['model_params']['cfg_final'] = {}
+    params['model_params']['func'] = \
+            params['agent_params']['model_params']['func']
+
+    params['train_params'] = {}
+    params['train_params']['queue_params'] = {'batch_size': 256, 'capacity': 10240, 'queue_type': 'random', 'seed': 0}
+
+    data['params'] = params
+    return data
+
 
 def test_from_params(load_params,
                      model_params,
@@ -918,11 +954,13 @@ def test_from_params(load_params,
                                      inter_op_parallelism_threads=inter_op_parallelism_threads)
 
     with tf.Graph().as_default(), tf.device(DEFAULT_HOST):
-
         # create session
-        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-                                                log_device_placement=log_device_placement,
-                                                inter_op_parallelism_threads=inter_op_parallelism_threads))
+        gpu_options = tf.GPUOptions(allow_growth=True)
+        sess = tf.Session(config=tf.ConfigProto(
+            allow_soft_placement=True,
+            gpu_options=gpu_options,
+            log_device_placement=log_device_placement,
+            inter_op_parallelism_threads=inter_op_parallelism_threads))
 
         init_op_global = tf.global_variables_initializer()
         sess.run(init_op_global)
@@ -951,6 +989,9 @@ def test_from_params(load_params,
             ld = ld[0]
             # TODO: have option to reconstitute model_params entirely from
             # saved object ("revivification")
+            is_rename = 'agent_params' in ld['params']
+            if is_rename:
+                ld = rename_interaction_utils(ld)
             param['model_params']['seed'] = ld['params']['model_params']['seed']
             cfg_final = ld['params']['model_params']['cfg_final']
             train_queue_params = ld['params']['train_params']['queue_params']
@@ -984,6 +1025,7 @@ def test_from_params(load_params,
         test_args = {key: [ttarg[key] for ttarg in _ttargs]
                      for key in _ttargs[0].keys()}
 
+        test_args['session'] = sess
         if dont_run:
             return test_args
 
@@ -1024,7 +1066,8 @@ def train_loop(sess, train_targets, num_minibatches=1, **loop_params):
 
     # Compute final targets (includes zeroing gradient accumulator variable)
 
-    return sess.run(train_targets)
+    run_options = tf.RunOptions(report_tensor_allocations_upon_oom = True)
+    return sess.run(train_targets, options=run_options)
 
 
 def train(sess,
@@ -1441,7 +1484,7 @@ def get_valid_targets_dict(validation_params,
         scope_name = '{}/validation/{}'.format(prefix, vtarg)
         with tf.name_scope(scope_name):
             _mp, voutputs = get_model(vinputs, model_params)
-            check_model_equivalence(_mp['cfg_final'], cfg_final, scope_name)
+            #check_model_equivalence(_mp['cfg_final'], cfg_final, scope_name)
             tf.get_variable_scope().reuse_variables()
         validation_params[vtarg], valid_targets_dict[vtarg] \
                 = get_validation_target(
@@ -1869,6 +1912,9 @@ def parse_params(mode,
                     param['minibatch_size'] = minibatch_size
                     param['num_minibatches'] = num_minibatches
                     param['queue_params']['batch_size'] = minibatch_size
+                    log.info('Using {} minibatches to compute batch of size {}'
+                            .format(int(num_minibatches), 
+                                int(num_minibatches * minibatch_size)))
 
         params[name] = param_list
 
